@@ -39,42 +39,6 @@
                 {% endif %}
             </div>
         </section>
-    {% elif audio_files and audio_files|length == 1 %}
-        <section class="audio-player-section">
-            <h2><i class="fas fa-headphones"></i> Your Audio File</h2>
-            <div class="main-audio-player">
-                <audio controls preload="metadata">
-                    <source src="{{ url_for('serve_audio', filename=audio_files[0]) }}" type="audio/{{ 'mpeg' if audio_files[0].endswith('.mp3') else 'wav' }}">
-                    Your browser does not support audio playback.
-                </audio>
-            </div>
-            <div class="download-section">
-                <a href="{{ url_for('serve_audio', filename=audio_files[0]) }}" download="{{ download_names[audio_files[0]] }}" class="btn btn-primary download-btn">
-                    <i class="fas fa-download"></i> Download Audio
-                </a>
-
-                {% if has_timing_data and base_filename %}
-                <a href="{{ url_for('read_along_view', base_filename=base_filename) }}" class="btn btn-secondary read-along-btn">
-                    <i class="fas fa-book-reader"></i> Read-Along Mode
-                    <span class="size-info">Synchronized text highlighting</span>
-                </a>
-                {% endif %}
-            </div>
-        </section>
-    {% else %}
-        <div class="info-card">
-            <h3><i class="fas fa-info-circle"></i> Notice</h3>
-            <p>MP3 compression was not available, but your audio files were generated successfully.</p>
-            {% if audio_files %}
-                <div class="download-section mt-lg">
-                    {% for audio_file in audio_files %}
-                        <a href="{{ url_for('serve_audio', filename=audio_file) }}" download="{{ download_names[audio_file] }}" class="btn btn-primary">
-                            <i class="fas fa-download"></i> Download Part {{ loop.index }}
-                        </a>
-                    {% endfor %}
-                </div>
-            {% endif %}
-        </div>
     {% endif %}
 
     <!-- File Information -->

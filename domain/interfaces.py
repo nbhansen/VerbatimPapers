@@ -128,10 +128,6 @@ class IDocumentEngine(ABC):
     """Interface for document processing operations using Result[T] pattern."""
 
     @abstractmethod
-    def get_pdf_info(self, pdf_path: str) -> Result[PDFInfo]:
-        """Get PDF metadata and information."""
-
-    @abstractmethod
     def extract_text(self, pdf_path: str, pages: list[int] | None = None) -> Result[list[str]]:
         """Extract text from PDF with OCR fallback."""
 

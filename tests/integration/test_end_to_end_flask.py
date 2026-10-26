@@ -361,9 +361,14 @@ class TestEndToEndPDFConversion:
             base_filename = f"timing_test_{match.group(1)[:8]}"
             assert f"/audio_outputs/{base_filename}.mp3" in read_along.get_data(as_text=True)
 
-            timing = client.get(f"/api/timing/{base_filename}")
-            assert timing.status_code == 200
-            assert timing.get_json()["text_segments"], "Timing data should contain segments"
+            # Every spoken segment is on the page, carrying the times the player highlights it by
+            page = read_along.get_data(as_text=True)
+            segments = json.loads(
+                (Path(config.files.audio_folder) / f"{base_filename}_timing.json").read_text(encoding="utf-8")
+            )["text_segments"]
+            assert segments, "Timing data should contain segments"
+            assert page.count('class="text-segment"') == len(segments)
+            assert f'data-start="{segments[1]["start_time"]}"' in page
 
     def test_same_named_uploads_get_distinct_outputs(
         self, sample_pdf_content: bytes, flask_test_config: SystemConfig
@@ -425,7 +430,7 @@ class TestBackgroundProcessingModel:
             result_data={
                 "base_filename": "doc",
                 "original_filename": "doc.pdf",
-                "audio_result": TimedAudioResult(audio_files=["doc.mp3"], combined_mp3=None),
+                "audio_result": TimedAudioResult(audio_files=["doc.mp3"], combined_mp3="doc.mp3"),
                 "page_range": PageRange(start_page=2, end_page=5),
             },
         )
@@ -449,7 +454,7 @@ class TestBackgroundProcessingModel:
             result_data={
                 "base_filename": "doc",
                 "original_filename": "doc.pdf",
-                "audio_result": TimedAudioResult(audio_files=["doc.mp3"], combined_mp3=None),
+                "audio_result": TimedAudioResult(audio_files=["doc.mp3"], combined_mp3="doc.mp3"),
             },
         )
 
