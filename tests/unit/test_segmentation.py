@@ -24,6 +24,15 @@ class TestSplitSentences:
             ("Results (p < 0.05). More.", ["Results (p < 0.05).", "More."]),
             ("Ørsted came first. Élan followed. Ωmega last.", ["Ørsted came first.", "Élan followed.", "Ωmega last."]),
             ("a lowercase start. after a period stays together", ["a lowercase start. after a period stays together"]),
+            # A number, letter or common word at the end of a sentence still ends it
+            ("The effect size was 0.5. The next study failed.", ["The effect size was 0.5.", "The next study failed."]),
+            ("See Section 2.1. The model is there.", ["See Section 2.1.", "The model is there."]),
+            ("Condition B. The next was C.", ["Condition B.", "The next was C."]),
+            ("The answer is no. But we tried.", ["The answer is no.", "But we tried."]),
+            ("Apples, pears etc. The end.", ["Apples, pears etc.", "The end."]),
+            # A lone initial before a name can't be told from a sentence ending in a
+            # letter; it splits, which loses no text (only a chain of initials holds)
+            ("By J. Smith today.", ["By J.", "Smith today."]),
         ],
     )
     def test_splits(self, text: str, expected: list[str]) -> None:
@@ -63,9 +72,19 @@ class TestChunkText:
 
         assert chunks == ["One two three.", "Four five six seven", "eight nine.", "Ten."]
 
-    def test_whitespace_is_normalized(self) -> None:
-        """Line breaks and runs of spaces from PDF extraction collapse to single spaces."""
-        assert chunk_text("One\n\ntwo   three.\tFour.", 100) == ["One two three. Four."]
+    def test_line_breaks_survive_inside_chunks(self) -> None:
+        """LLM cleaning needs the PDF's line structure to spot headers, page numbers and hyphenation."""
+        page = "Journal of Things 12\nThe inter-\nnational study found\nthat results vary.\n17"
+
+        assert chunk_text(page, 1000) == [page]
+        assert chunk_text(page, 40) == [
+            "Journal of Things 12\nThe inter-\nnational",
+            "study found\nthat results vary.\n17",
+        ]
+
+    def test_split_sentences_keeps_inner_line_breaks(self) -> None:
+        """A sentence is a slice of the original text, not a re-spaced copy."""
+        assert split_sentences("One\ntwo. Three\nfour.") == ["One\ntwo.", "Three\nfour."]
 
     def test_blank_text_has_no_chunks(self) -> None:
         """Nothing to chunk yields nothing."""

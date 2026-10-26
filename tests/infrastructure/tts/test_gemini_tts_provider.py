@@ -6,6 +6,8 @@ response parsing (including PCM-to-WAV conversion), and error handling.
 """
 
 import asyncio
+import threading
+import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
@@ -215,16 +217,20 @@ class TestGeminiRequestPacing:
         in_flight = 0
         peak = 0
 
-        async def fake_generate(**_kwargs: object) -> SimpleNamespace:
+        lock = threading.Lock()
+
+        def fake_generate(**_kwargs: object) -> SimpleNamespace:
             nonlocal in_flight, peak
-            in_flight += 1
-            peak = max(peak, in_flight)
-            await asyncio.sleep(0.02)
-            in_flight -= 1
+            with lock:
+                in_flight += 1
+                peak = max(peak, in_flight)
+            time.sleep(0.02)
+            with lock:
+                in_flight -= 1
             return make_audio_response(b"\x00\x01" * 10, mime_type="audio/pcm;rate=24000")
 
         provider.client = Mock()
-        provider.client.aio.models.generate_content = fake_generate
+        provider.client.models.generate_content = fake_generate
 
         results = await asyncio.gather(*(provider.synthesize_async(f"Text {i}.") for i in range(6)))
 
@@ -236,16 +242,30 @@ class TestGeminiRequestPacing:
         """A failed request frees its slot for the next one."""
         provider = GeminiTTSProvider(model_name="m", api_key="k", min_request_interval=0.0, max_concurrent_requests=1)
 
-        async def failing_generate(**_kwargs: object) -> SimpleNamespace:
-            raise RuntimeError("quota exceeded")
-
         provider.client = Mock()
-        provider.client.aio.models.generate_content = failing_generate
+        provider.client.models.generate_content.side_effect = RuntimeError("quota exceeded")
 
         first = await asyncio.wait_for(provider.synthesize_async("One."), timeout=1)
         second = await asyncio.wait_for(provider.synthesize_async("Two."), timeout=1)
 
         assert first.is_failure and second.is_failure
+
+    def test_async_path_survives_separate_event_loops(self) -> None:
+        """Each conversion runs on a new event loop; genai's async client can't be shared across them.
+
+        The async path must use the sync client in a thread, so the aio client is never touched.
+        """
+        provider = GeminiTTSProvider(model_name="m", api_key="k", min_request_interval=0.0)
+        provider.client = Mock()
+        provider.client.models.generate_content.return_value = make_audio_response(
+            b"\x00\x01" * 10, mime_type="audio/pcm;rate=24000"
+        )
+        provider.client.aio.models.generate_content.side_effect = AssertionError("aio client used")
+
+        results = [asyncio.run(provider.synthesize_async(f"Run {i}.")) for i in range(3)]
+
+        assert all(r.is_success for r in results)
+        assert provider.client.models.generate_content.call_count == 3
 
 
 class TestGeminiTTSProviderAsyncGeneration:
@@ -253,16 +273,12 @@ class TestGeminiTTSProviderAsyncGeneration:
 
     @pytest.mark.asyncio
     async def test_synthesize_async_success(self, basic_gemini_provider: GeminiTTSProvider) -> None:
-        """Should generate audio asynchronously via the aio client."""
+        """The async path returns the same segment as the sync one."""
         provider = basic_gemini_provider
         mock_client = Mock()
 
         pcm = b"\x00\x01" * 100
-
-        async def fake_generate(**_kwargs: object) -> SimpleNamespace:
-            return make_audio_response(pcm, mime_type="audio/pcm;rate=24000")
-
-        mock_client.aio.models.generate_content = fake_generate
+        mock_client.models.generate_content.return_value = make_audio_response(pcm, mime_type="audio/pcm;rate=24000")
         provider.client = mock_client
 
         result = await provider.synthesize_async("Test text for async generation")
@@ -278,10 +294,7 @@ class TestGeminiTTSProviderAsyncGeneration:
         provider = basic_gemini_provider
         mock_client = Mock()
 
-        async def fake_generate(**_kwargs: object) -> SimpleNamespace:
-            raise RuntimeError("connection reset")
-
-        mock_client.aio.models.generate_content = fake_generate
+        mock_client.models.generate_content.side_effect = RuntimeError("connection reset")
         provider.client = mock_client
 
         result = await provider.synthesize_async("Test text")
@@ -380,16 +393,15 @@ class TestGeminiTTSProviderStylePrompt:
         provider = self._provider("Read this slowly.")
         mock_client = Mock()
 
-        async def fake_generate(**kwargs: object) -> SimpleNamespace:
-            return make_audio_response(b"\x00\x01" * 100, mime_type="audio/pcm;rate=24000")
-
-        mock_client.aio.models.generate_content = Mock(side_effect=fake_generate)
+        mock_client.models.generate_content.return_value = make_audio_response(
+            b"\x00\x01" * 100, mime_type="audio/pcm;rate=24000"
+        )
         provider.client = mock_client
 
         result = await provider.synthesize_async("Body text.")
 
         assert result.is_success
-        contents = mock_client.aio.models.generate_content.call_args.kwargs["contents"]
+        contents = mock_client.models.generate_content.call_args.kwargs["contents"]
         assert contents == "Read this slowly.\n\nBody text."
 
 

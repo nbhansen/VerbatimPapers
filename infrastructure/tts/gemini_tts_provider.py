@@ -87,19 +87,6 @@ class GeminiTTSProvider(ITTSEngine):
             time.sleep(self._claim_start_delay())
             yield
 
-    async def _acquire_request_slot_async(self) -> None:
-        """Async counterpart of _request_slot's acquire; caller releases _request_slots.
-
-        Polls rather than blocking a thread, so a cancelled task never leaves a slot held.
-        """
-        while not self._request_slots.acquire(blocking=False):  # noqa: ASYNC110 - thread semaphore shared across loops
-            await asyncio.sleep(0.05)
-        try:
-            await asyncio.sleep(self._claim_start_delay())
-        except BaseException:
-            self._request_slots.release()
-            raise
-
     def _build_prompt(self, text: str) -> str:
         """Prefix the delivery directive to the text, if one is configured."""
         if not self.style_prompt:
@@ -148,43 +135,14 @@ class GeminiTTSProvider(ITTSEngine):
             return Result.failure(tts_engine_error(f"Gemini TTS failed: {e}"))
 
     async def synthesize_async(self, text: str) -> Result[Sequence[SynthesizedSegment]]:
-        """Synthesize asynchronously using Gemini's async client."""
-        # Check for deferred initialization errors
-        if self._initialization_error:
-            logger.error("Gemini TTS initialization failed: %s", self._initialization_error)
-            return Result.failure(tts_engine_error(self._initialization_error))
+        """Run the sync client in a worker thread.
 
-        if not self.client:
-            return Result.failure(tts_engine_error("Gemini Client not initialized"))
-
-        if not text.strip():
-            return Result.failure(tts_engine_error("Empty text provided"))
-
-        try:
-            config = types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=self.voice_name)
-                    )
-                ),
-            )
-
-            prompt = self._build_prompt(text)
-
-            await self._acquire_request_slot_async()
-            try:
-                response = await self.client.aio.models.generate_content(
-                    model=self.model_name, contents=prompt, config=config
-                )
-            finally:
-                self._request_slots.release()
-
-            return self._segments_from_response(text, response)
-
-        except Exception as e:
-            logger.exception("Gemini Async TTS generation failed")
-            return Result.failure(tts_engine_error(f"Gemini Async TTS failed: {e}"))
+        Each conversion runs on its own short-lived event loop. genai's async client
+        keeps one connection pool for the process, and pooled connections are tied to
+        the loop that opened them, so reusing it on a later loop fails with "Event
+        loop is closed". The sync client has no such tie.
+        """
+        return await asyncio.to_thread(self.synthesize, text)
 
     def _segments_from_response(
         self, text: str, response: types.GenerateContentResponse

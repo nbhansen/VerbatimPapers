@@ -118,21 +118,24 @@ class TestGenerate:
         assert result.value.timing_data.audio_files == ["paper_ab12cd34.mp3"]
         assert (Path(file_manager.get_output_dir()) / "paper_ab12cd34.mp3").exists()
 
-    def test_failed_chunk_is_skipped(self, file_manager: FileManager) -> None:
-        """A chunk the engine can't synthesize is left out; the rest still play in order."""
-        result = _engine(file_manager, tts=FailingChunkTTSEngine(), chunk_size=10).generate(
+    def test_failed_chunk_fails_the_conversion(self, file_manager: FileManager) -> None:
+        """One unsynthesizable chunk fails the whole conversion rather than leaving a silent gap."""
+        encoder = FakeAudioEncoder()
+
+        result = _engine(file_manager, tts=FailingChunkTTSEngine(), encoder=encoder, chunk_size=10).generate(
             ["First one.", "FAIL here.", "Last one."], "doc"
         )
 
-        assert result.is_success and result.value is not None and result.value.timing_data is not None
-        assert [s.text for s in result.value.timing_data.text_segments] == ["First one.", "Last one."]
+        assert result.is_failure and result.error is not None
+        assert result.error.details == "Part 2 of 3 could not be synthesized: TTS generation failed"
+        assert encoder.encoded == {}, "No audio may be published with a passage missing"
 
     def test_all_chunks_failing_is_an_error(self, file_manager: FileManager) -> None:
         """No audio at all is a failure, not an empty success."""
         result = _engine(file_manager, tts=FakeTTSEngine(should_fail=True)).generate(["Hello."], "doc")
 
         assert result.is_failure and result.error is not None
-        assert "No audio generated" in (result.error.details or "")
+        assert "Part 1 of 1 could not be synthesized" in (result.error.details or "")
 
     def test_encoder_failure_is_an_error(self, file_manager: FileManager) -> None:
         """An encoding failure is reported rather than returning a missing file."""

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 from application.services.error_formatting import clean_text_for_display, get_processing_stage_error
 from application.services.progress_store import ThreadSafeProgressStore
-from domain.errors import ErrorCode
+from domain.errors import ApplicationError, ErrorCode
 from domain.interfaces import IAudioEngine, IDocumentEngine, ITextPipeline
 from domain.models import ProcessingRequest
 from utils import parse_page_range_from_form, parse_plain_english_from_form
@@ -26,6 +26,41 @@ logger = logging.getLogger(__name__)
 def output_base_name(original_filename: str, operation_id: str) -> str:
     """Base name for a conversion's output files: the upload's stem plus a short operation id."""
     return f"{Path(original_filename).stem}_{operation_id[:8]}"
+
+
+# Which stage a failed conversion is reported under, by error code
+_FAILURE_STAGES = {
+    ErrorCode.INVALID_PAGE_RANGE: "page_range",
+    ErrorCode.TEXT_EXTRACTION_FAILED: "text_extraction",
+    ErrorCode.TEXT_CLEANING_FAILED: "text_processing",
+}
+
+
+# The fixed messages of domain.errors' helpers, which only restate the stage
+_GENERIC_MESSAGES = frozenset(
+    {
+        "Failed to extract text from PDF",
+        "Invalid page range",
+        "Audio generation failed",
+        "TTS engine error",
+        "LLM provider error",
+        "Configuration error",
+    }
+)
+
+
+def describe_failure(error: ApplicationError | None, original_filename: str) -> str:
+    """User-facing message for a failed conversion: the stage that failed and why."""
+    if error is None:
+        return get_processing_stage_error("processing", Exception("unknown error"), original_filename)
+    stage = _FAILURE_STAGES.get(error.code, "audio_generation")
+    if error.details and error.message in _GENERIC_MESSAGES:
+        reason = error.details  # The stage already says what failed; the details say why
+    elif error.details:
+        reason = f"{error.message}: {error.details}"  # from_exception: exception text, then its type
+    else:
+        reason = error.message
+    return get_processing_stage_error(stage, Exception(reason), original_filename)
 
 
 def timing_json_filename(base_filename: str) -> str:
@@ -105,16 +140,7 @@ class DocumentProcessingService:
 
             logger.debug("Processing result: success=%s", processing_result.is_success)
             if processing_result.is_failure:
-                error = processing_result.error
-                if error is not None and error.code == ErrorCode.INVALID_PAGE_RANGE:
-                    # The details say which page is out of range; that is what the user can act on
-                    enhanced_error = get_processing_stage_error(
-                        "page_range", Exception(error.details or error.message), original_filename
-                    )
-                else:
-                    enhanced_error = get_processing_stage_error(
-                        "audio_generation", Exception(str(error)), original_filename
-                    )
+                enhanced_error = describe_failure(processing_result.error, original_filename)
                 self.progress_store.update(
                     operation_id,
                     "error",

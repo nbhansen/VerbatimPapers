@@ -67,7 +67,10 @@ class AudioEngine(IAudioEngine):
         This is the only place text is chunked for TTS: the input is re-packed into
         sentence-aligned chunks of at most audio_target_chunk_size characters.
         """
-        chunks = chunk_text(" ".join(text_chunks), self.audio_target_chunk_size)
+        try:
+            chunks = chunk_text(" ".join(text_chunks), self.audio_target_chunk_size)
+        except ValueError as e:
+            return Result.failure(audio_generation_error(str(e)))
         if not chunks:
             return Result.failure(audio_generation_error("No text to synthesize"))
 
@@ -85,15 +88,18 @@ class AudioEngine(IAudioEngine):
         # gather() returns results in input order, so the timeline follows the document
         for chunk_index, result in enumerate(results):
             if result.is_failure or not result.value:
-                logger.warning("Chunk %d/%d failed: %s", chunk_index + 1, len(chunks), result.error)
-                continue
+                # Skipping it would publish audio with a passage silently missing
+                reason = (result.error.details or result.error.message) if result.error else "no audio returned"
+                logger.error("Chunk %d/%d failed: %s", chunk_index + 1, len(chunks), reason)
+                return Result.failure(
+                    audio_generation_error(
+                        f"Part {chunk_index + 1} of {len(chunks)} could not be synthesized: {reason}"
+                    )
+                )
             segments = list(result.value)
             chunk_timed, cursor = self.assembler.to_timed_segments(segments, chunk_index=chunk_index, start_time=cursor)
             all_segments.extend(segments)
             timed_segments.extend(chunk_timed)
-
-        if not all_segments:
-            return Result.failure(audio_generation_error("No audio generated for any chunk"))
 
         assembled = self.assembler.to_wav(all_segments)
         if assembled.is_failure or not assembled.value:
