@@ -12,13 +12,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from application.composition import Services
 from application.config.app_configs import FlaskConfig
 from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
-from application.container.service_container import ServiceContainer
 from domain.config.tts_config import PiperConfig, TTSConfig, TTSEngine
-from domain.interfaces import IAudioEngine, IDocumentEngine, IFileManager, ITextPipeline, ITTSEngine
+from domain.interfaces import ITTSEngine
 from domain.models import PageRange, ProcessingRequest
 from infrastructure.file.file_manager import FileManager
 
@@ -71,13 +71,13 @@ class TestServiceFactoryIntegration:
         """Should create all core services without excessive mocking."""
         # Only mock Piper availability check - rest should be real
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
             # Verify all main services are created
-            audio_engine = container.get(IAudioEngine)
-            text_pipeline = container.get(ITextPipeline)
-            document_engine = container.get(IDocumentEngine)
-            file_manager = container.get(IFileManager)
+            audio_engine = container.audio_engine
+            text_pipeline = container.text_pipeline
+            document_engine = container.document_engine
+            file_manager = container.file_manager
             assert isinstance(file_manager, FileManager)
 
             assert audio_engine is not None
@@ -91,15 +91,15 @@ class TestServiceFactoryIntegration:
             assert not isinstance(document_engine, Mock)
             assert not isinstance(file_manager, Mock)
 
-    def test_service_container_dependency_injection(self, integration_config: SystemConfig) -> None:
+    def test_services_share_dependencies(self, integration_config: SystemConfig) -> None:
         """Should properly inject dependencies between services."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
             # Get services that should share dependencies
-            audio_engine = container.get(IAudioEngine)
-            document_engine = container.get(IDocumentEngine)
-            file_manager = container.get(IFileManager)
+            audio_engine = container.audio_engine
+            document_engine = container.document_engine
+            file_manager = container.file_manager
             assert isinstance(file_manager, FileManager)
 
             # Services should use the same file manager instance (dependency injection)
@@ -111,27 +111,24 @@ class TestServiceFactoryIntegration:
             assert file_manager.upload_folder == integration_config.files.upload_folder
             assert file_manager.output_folder == integration_config.files.audio_folder
 
-    def test_progress_store_is_container_singleton(self, integration_config: SystemConfig) -> None:
-        """DocumentProcessingService must share the container's single progress store instance."""
-        from application.services.document_service import DocumentProcessingService
-        from application.services.progress_store import ThreadSafeProgressStore
-
+    def test_progress_store_is_shared(self, integration_config: SystemConfig) -> None:
+        """DocumentProcessingService must share the single progress store instance."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
-            store = container.get(ThreadSafeProgressStore)
-            assert container.get(ThreadSafeProgressStore) is store
+            store = container.progress_store
+            assert container.progress_store is store
 
-            document_service = container.get(DocumentProcessingService)
+            document_service = container.document_service
             assert document_service.progress_store is store
 
     def test_tts_engine_selection_and_creation(self, integration_config: SystemConfig) -> None:
         """Should create correct TTS engine based on configuration."""
         # Test Piper engine selection
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
-            audio_engine = container.get(IAudioEngine)
+            audio_engine = container.audio_engine
             assert audio_engine is not None
 
             # Audio engine should have a TTS engine
@@ -140,10 +137,10 @@ class TestServiceFactoryIntegration:
     def test_configuration_propagation(self, integration_config: SystemConfig) -> None:
         """Should properly propagate configuration to all services."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
-            text_pipeline = container.get(ITextPipeline)
-            file_manager = container.get(IFileManager)
+            text_pipeline = container.text_pipeline
+            file_manager = container.file_manager
             assert isinstance(file_manager, FileManager)
 
             # Configuration should be propagated correctly
@@ -160,9 +157,9 @@ class TestServiceInteractionIntegration:
     def test_document_engine_ocr_integration(self, integration_config: SystemConfig) -> None:
         """Should integrate real document engine with OCR provider."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
-            document_engine = container.get(IDocumentEngine)
+            document_engine = container.document_engine
 
             # Document engine should have real OCR provider
             assert hasattr(document_engine, "_ocr_provider") or hasattr(document_engine, "ocr_provider")
@@ -177,9 +174,9 @@ class TestServiceInteractionIntegration:
     def test_audio_engine_tts_integration(self, integration_config: SystemConfig) -> None:
         """Should integrate real audio engine with TTS provider."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
-            audio_engine = container.get(IAudioEngine)
+            audio_engine = container.audio_engine
 
             # Audio engine should have real TTS engine
             assert hasattr(audio_engine, "_tts_engine") or hasattr(audio_engine, "tts_engine")
@@ -192,9 +189,9 @@ class TestServiceInteractionIntegration:
     def test_file_manager_directory_creation(self, integration_config: SystemConfig) -> None:
         """Should properly create and manage directories."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
+            container = Services(integration_config)
 
-            file_manager = container.get(IFileManager)
+            file_manager = container.file_manager
             assert isinstance(file_manager, FileManager)
 
             # Directories should exist
@@ -253,7 +250,7 @@ class TestErrorHandlingIntegration:
         # This tests that errors are handled gracefully rather than crashing
         try:
             with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-                container = ServiceContainer(invalid_config)
+                container = Services(invalid_config)
                 # If it succeeds, services should still be created
                 assert container is not None
         except Exception as e:
@@ -267,7 +264,7 @@ class TestErrorHandlingIntegration:
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", False):
             # This might fail or fall back to alternative - both are valid behaviors
             try:
-                container = ServiceContainer(integration_config)
+                container = Services(integration_config)
                 # If successful, should have valid services
                 assert container is not None
             except Exception:
@@ -288,8 +285,8 @@ class TestRealProviderInteraction:
                 with patch("pathlib.Path.exists") as mock_exists:
                     mock_exists.return_value = True
 
-                    container = ServiceContainer(integration_config)
-                    audio_engine = container.get(IAudioEngine)
+                    container = Services(integration_config)
+                    audio_engine = container.audio_engine
 
                     # Should have real TTS engine that implements interface
                     tts_engine = getattr(audio_engine, "_tts_engine", None) or getattr(audio_engine, "tts_engine", None)
@@ -307,8 +304,8 @@ class TestRealProviderInteraction:
     def test_text_pipeline_real_processing(self, integration_config: SystemConfig) -> None:
         """Should create text pipeline that does real text processing."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
-            text_pipeline = container.get(ITextPipeline)
+            container = Services(integration_config)
+            text_pipeline = container.text_pipeline
 
             # Text pipeline should be real implementation
             assert text_pipeline is not None
@@ -321,8 +318,8 @@ class TestRealProviderInteraction:
     def test_file_manager_real_operations(self, integration_config: SystemConfig) -> None:
         """Should create file manager that does real file operations."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(integration_config)
-            file_manager = container.get(IFileManager)
+            container = Services(integration_config)
+            file_manager = container.file_manager
             assert isinstance(file_manager, FileManager)
 
             # File manager should be real implementation

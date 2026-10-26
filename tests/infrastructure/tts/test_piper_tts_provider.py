@@ -220,6 +220,45 @@ class TestPiperTTSProviderInterfaces:
         assert provider.supports_ssml() is False
 
 
+class TestPiperReadiness:
+    """check_ready reports what synthesize would fail on, without synthesizing."""
+
+    @staticmethod
+    def _provider(method: str | None, voice: object = None, init_error: str | None = None) -> PiperTTSProvider:
+        provider = PiperTTSProvider.__new__(PiperTTSProvider)
+        provider.piper_method = method
+        provider.voice_instance = voice  # type: ignore[assignment]
+        provider.model_path = "/models/voice.onnx"
+        provider._initialization_error = init_error
+        return provider
+
+    def test_ready_with_loaded_voice(self) -> None:
+        """A loaded voice is ready."""
+        assert self._provider("python_library", voice=Mock()).check_ready().is_success
+
+    def test_ready_with_command_line(self) -> None:
+        """The CLI needs no voice instance."""
+        assert self._provider("command_line").check_ready().is_success
+
+    def test_reports_deferred_init_error(self) -> None:
+        """A failed model download is reported, not deferred to the first upload."""
+        result = self._provider("python_library", init_error="Model download failed: offline").check_ready()
+        assert result.is_failure and result.error is not None
+        assert result.error.details == "Model download failed: offline"
+
+    def test_reports_missing_runtime(self) -> None:
+        """No Python library and no CLI is not ready."""
+        result = self._provider(None).check_ready()
+        assert result.is_failure and result.error is not None
+        assert "not available" in (result.error.details or "")
+
+    def test_reports_voice_that_failed_to_load(self) -> None:
+        """The library is present but the model didn't load."""
+        result = self._provider("python_library").check_ready()
+        assert result.is_failure and result.error is not None
+        assert "/models/voice.onnx" in (result.error.details or "")
+
+
 class TestPiperTTSProviderTextValidation:
     """Test text input validation for TTS generation."""
 
@@ -628,7 +667,6 @@ class TestPiperSynthesisConfig:
             length_scale=1.25,
             noise_scale=0.5,
             noise_w=0.9,
-            sentence_silence=0.4,
             speaker_id=3,
         )
 
@@ -715,13 +753,13 @@ class TestPiperSegmentProduction:
         assert segments[0].duration == pytest.approx(1.5)  # 3 x 50 frames at 100 Hz
 
     def test_provider_writes_no_silence_of_its_own(self, temp_models_dir: str) -> None:
-        """sentence_silence must not leak into the engine's audio (issue #64)."""
-        config = PiperConfig(download_dir=temp_models_dir, sentence_silence=5.0)
+        """Inter-sentence gaps are AudioAssembler's job; the engine adds none (issue #64)."""
+        config = PiperConfig(download_dir=temp_models_dir)
         provider = self._provider(config, frames=100)
 
         segments = provider._synthesize_with_python_lib("One sentence.")
 
-        # Exactly the speech frames - a huge gap setting changes nothing here
+        # Exactly the speech frames, no trailing silence
         assert len(segments[0].pcm) == 100 * 2
 
     def test_zero_chunks_reports_the_real_error(self, temp_models_dir: str) -> None:

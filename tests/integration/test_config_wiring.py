@@ -8,11 +8,11 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from application.composition import Services
 from application.config.system_config import SystemConfig
-from application.container.service_container import ServiceContainer
 from domain.audio.audio_engine import AudioEngine
+from domain.audio.timing_engine import TimingEngine
 from domain.document.document_engine import DocumentEngine
-from domain.interfaces import IAudioEngine, IDocumentEngine
 from infrastructure.llm.gemini_llm_provider import GeminiLLMProvider
 from infrastructure.ocr.tesseract_ocr_provider import TesseractOCRProvider
 from infrastructure.tts.gemini_tts_provider import GeminiTTSProvider
@@ -64,33 +64,48 @@ class TestSettingsReachConsumers:
     """Non-default values flow from YAML through the container to each component."""
 
     @pytest.fixture
-    def container(self, tmp_path: Path) -> ServiceContainer:
+    def container(self, tmp_path: Path) -> Services:
         """Container built from the example config with non-default values."""
         config = _load_example(
             tmp_path,
             {
                 "performance": {"audio_concurrent_chunks": 9},
+                "audio": {"sentence_gap": 0.7},
                 "text_processing": {"audio_target_chunk_size": 1234},
                 "ocr": {"language": "dan", "dpi": 450},
                 "secrets": {"google_ai_api_key": "test-key"},
             },
         )
-        return ServiceContainer(config)
+        return Services(config)
 
-    def test_audio_engine_settings(self, container: ServiceContainer) -> None:
+    def test_audio_engine_settings(self, container: Services) -> None:
         """Audio concurrency and chunk size come from the config."""
-        with patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider", return_value=FakeTTSEngine()):
-            engine = container.get(IAudioEngine)
+        with patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()):
+            engine = container.audio_engine
 
         assert isinstance(engine, AudioEngine)
         assert engine.max_concurrent == 9
         assert engine.audio_target_chunk_size == 1234
 
-    def test_ocr_settings(self, container: ServiceContainer) -> None:
-        """OCR language reaches Tesseract; DPI reaches page rendering."""
-        assert container.get(TesseractOCRProvider).ocr_language == "dan"
+    def test_sentence_gap_reaches_shared_assembler(self, container: Services) -> None:
+        """audio.sentence_gap sets the gap for the one assembler both engines share."""
+        with patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()):
+            engine = container.audio_engine
 
-        document_engine = container.get(IDocumentEngine)
+        assert isinstance(engine, AudioEngine)
+        assert container.audio_assembler.sentence_gap == 0.7
+        assert engine.assembler is container.audio_assembler
+        timing_engine = container.timing_engine
+        assert isinstance(timing_engine, TimingEngine)
+        assert timing_engine.assembler is container.audio_assembler
+
+    def test_ocr_settings(self, container: Services) -> None:
+        """OCR language reaches Tesseract; DPI reaches page rendering."""
+        ocr = container.ocr_provider
+        assert isinstance(ocr, TesseractOCRProvider)
+        assert ocr.ocr_language == "dan"
+
+        document_engine = container.document_engine
         assert isinstance(document_engine, DocumentEngine)
         assert document_engine.ocr_resolution == 450
         assert document_engine.audio_target_chunk_size == 1234
@@ -106,11 +121,12 @@ class TestGeminiModelSeparation:
             {"tts": {"engine": "gemini"}, "secrets": {"google_ai_api_key": "test-key"}},
             drop=("llm.model_name",),
         )
-        container = ServiceContainer(config)
+        container = Services(config)
 
-        llm = container.get(GeminiLLMProvider)
-        tts: object = container.get("tts_engine")
+        llm = container.llm_provider
+        tts = container.tts_engine
 
+        assert isinstance(llm, GeminiLLMProvider)
         assert isinstance(tts, GeminiTTSProvider)
         assert tts.model_name.endswith("-tts")
         assert not llm.model_name.endswith("-tts")

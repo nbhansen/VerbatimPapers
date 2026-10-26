@@ -22,14 +22,6 @@ tts:
     # Speech speed (1.0 = normal, 0.8 = slower, 1.2 = faster)
     length_scale: 1.0
 
-    # Pause inserted after every sentence, in seconds. This is the main cadence
-    # control - raise it for a slower, more deliberate read.
-    #
-    # Applied when the audio is assembled rather than by the engine, so it is
-    # honoured identically between sentences and at chunk boundaries, and the
-    # read-along timeline accounts for it exactly.
-    sentence_silence: 0.2
-
     # Synthesis variability. noise_scale affects tone, noise_w affects the
     # timing/pronunciation of individual phonemes.
     noise_scale: 0.667
@@ -69,6 +61,16 @@ files:
     enabled: true
     max_file_age_hours: 24.0        # Delete outputs and orphaned uploads older than 24 hours
     auto_cleanup_interval_hours: 6.0 # Run cleanup every 6 hours
+
+# Audio Assembly (applies to every TTS engine)
+audio:
+  # Pause inserted after every sentence, in seconds. This is the main cadence
+  # control - raise it for a slower, more deliberate read.
+  #
+  # Applied when the audio is assembled rather than by the engine, so it is
+  # honoured identically between sentences and at chunk boundaries, and the
+  # read-along timeline accounts for it exactly.
+  sentence_gap: 0.2
 
 # Performance Tuning
 performance:

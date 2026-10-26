@@ -85,6 +85,15 @@ class TestGeminiTTSProviderInitialization:
             assert result.error.code == ErrorCode.TTS_ENGINE_ERROR
             assert "Failed to initialize Gemini Client" in str(result.error.details)
 
+            # The same error is reported by the startup readiness check
+            ready = provider.check_ready()
+            assert ready.is_failure
+            assert "Failed to initialize Gemini Client" in str(ready.error.details if ready.error else "")
+
+    def test_ready_once_client_is_built(self, basic_gemini_provider: GeminiTTSProvider) -> None:
+        """A built client is ready; the service itself is not contacted."""
+        assert basic_gemini_provider.check_ready().is_success
+
 
 class TestGeminiTTSProviderInterfaces:
     """Test ITTSEngine interface implementation."""

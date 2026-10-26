@@ -173,6 +173,20 @@ class PiperTTSProvider(ITTSEngine):
         """Return True if this engine supports SSML markup."""
         return False  # Piper does NOT support SSML - all tags must be stripped
 
+    def check_ready(self) -> Result[None]:
+        """Ready once a Piper runtime is found and the voice model is in place."""
+        if self._initialization_error:
+            return Result.failure(tts_engine_error(self._initialization_error))
+        if not self.piper_method:
+            return Result.failure(
+                tts_engine_error(
+                    "Piper TTS not available. Install with: pip install piper-tts or install piper command"
+                )
+            )
+        if self.piper_method == "python_library" and self.voice_instance is None:
+            return Result.failure(tts_engine_error(f"Could not load Piper voice model: {self.model_path}"))
+        return Result.success(None)
+
     def _secure_download(self, url: str, destination: str, timeout: int = 30) -> None:
         """Securely download a file with SSL verification and URL validation."""
         logger.info("Starting secure download from %s to %s", url, destination)

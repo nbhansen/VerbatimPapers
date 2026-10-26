@@ -1,7 +1,7 @@
 """Flask route handlers with proper dependency injection.
 
-This module provides all route handlers that use ApplicationContext for
-dependency injection, eliminating global state.
+This module provides all route handlers; they reach their dependencies through
+the Services instance stored on the app, eliminating global state.
 """
 
 from concurrent.futures import Future
@@ -19,14 +19,13 @@ from flask import Flask, Response, current_app, jsonify, render_template, reques
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
+from application.composition import Services
 from application.config.system_config import SystemConfig
-from application.context.application_context import ApplicationContext
-from application.services.document_service import DocumentProcessingService, timing_json_filename
+from application.services.document_service import timing_json_filename
 from application.services.error_formatting import (
     get_processing_stage_error,
 )
 from application.services.progress_store import ThreadSafeProgressStore
-from domain.interfaces import IFileManager
 from domain.models import PageRange, TimedAudioResult
 from utils import (
     allowed_file,
@@ -47,7 +46,7 @@ def background_process_document(
     saved_file_path: str,
     original_filename: str,
     enable_timing: bool,
-    app_context: ApplicationContext,
+    services: Services,
     app: Flask,
 ) -> None:
     """Background processing function that delegates to DocumentProcessingService.
@@ -58,18 +57,15 @@ def background_process_document(
         saved_file_path: Path where the uploaded file was saved
         original_filename: Original filename from upload
         enable_timing: Whether to enable timing data
-        app_context: Application context
+        services: The app's services
         app: Flask app instance
     """
     # Use the Flask app context for this thread
     with app.app_context():
         logger.debug("Background thread started for operation %s, file: %s", operation_id[:8], original_filename)
         try:
-            # Get service from container
-            service = app_context.service_container.get(DocumentProcessingService)
-
-            # Delegate all orchestration logic to service
-            service.process_document_background(
+            # Delegate all orchestration logic to the document service
+            services.document_service.process_document_background(
                 operation_id=operation_id,
                 request_form=request_form,
                 saved_file_path=saved_file_path,
@@ -105,30 +101,20 @@ def handle_background_completion(
     )
 
 
-def get_app_context() -> ApplicationContext:
-    """Get application context from Flask app context."""
-    return current_app.config["APP_CONTEXT"]  # type: ignore[no-any-return]
-
-
-def is_processor_available() -> bool:
-    """Check if processor is available from context."""
-    try:
-        result = get_app_context().is_processor_available
-        logger.info("Processor available check: %s", result)
-        return result
-    except Exception as e:
-        logger.error("Error checking processor availability: %s", e)
-        return False
+def get_services() -> Services:
+    """Get the app's services from the Flask app config."""
+    services: Services = current_app.config["SERVICES"]
+    return services
 
 
 def get_app_config() -> SystemConfig:
-    """Get app config from context."""
-    return get_app_context().config
+    """Get the app's configuration."""
+    return get_services().config
 
 
 def get_progress_store() -> ThreadSafeProgressStore:
-    """Get the progress store from context."""
-    return get_app_context().progress_store
+    """Get the progress store."""
+    return get_services().progress_store
 
 
 def register_routes(app: Flask) -> None:
@@ -136,8 +122,7 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/")
     def index() -> str:
-        context = get_app_context()
-        return render_template("index.html", tts_engine=context.config.tts.engine.value)
+        return render_template("index.html", tts_engine=get_app_config().tts.engine.value)
 
     @app.route("/favicon.ico")
     def favicon() -> tuple[str, int]:
@@ -276,17 +261,6 @@ def register_routes(app: Flask) -> None:
     @app.route("/get_pdf_info", methods=["POST"])
     def get_pdf_info() -> Response | tuple[Response, int]:
         logger.debug("PDF info request received")
-        if not is_processor_available():
-            return (
-                jsonify(
-                    {
-                        "error": "PDF processing service is not available. Please check system "
-                        "configuration and try again."
-                    }
-                ),
-                500,
-            )
-
         if "pdf_file" not in request.files:
             return jsonify({"error": "No file was uploaded. Please select a PDF file and try again."}), 400
 
@@ -302,11 +276,7 @@ def register_routes(app: Flask) -> None:
             temp_path = Path(app.config["UPLOAD_FOLDER"]) / f"temp_{uuid.uuid4().hex}_{original_filename}"
             file.save(str(temp_path))
 
-            # Use document engine to get PDF info
-            from domain.interfaces import IDocumentEngine
-
-            document_engine = get_app_context().service_container.get(IDocumentEngine)
-            pdf_info_result = document_engine.get_pdf_info(str(temp_path))
+            pdf_info_result = get_services().document_engine.get_pdf_info(str(temp_path))
 
             # Clean up
             with contextlib.suppress(Exception):
@@ -331,13 +301,6 @@ def register_routes(app: Flask) -> None:
             (file, error_message) - file if valid, error message if invalid
         """
         logger.debug("Validating upload request")
-        if not is_processor_available():
-            return (
-                None,
-                "PDF processing service is temporarily unavailable. Please check your "
-                "configuration and try again in a few moments.",
-            )
-
         if "pdf_file" not in request.files:
             return None, "No file was uploaded. Please select a PDF file and try again."
 
@@ -390,21 +353,19 @@ def register_routes(app: Flask) -> None:
         form_data = dict(request.form)
 
         # Submit to the bounded worker pool; uploads beyond the concurrency cap queue up
-        from flask import current_app
-
-        context = get_app_context()
-        future = context.background_executor.submit(
+        services = get_services()
+        future = services.background_executor.submit(
             background_process_document,
             operation_id,
             form_data,
             str(saved_path),
             original_filename,
             enable_timing,
-            context,
+            services,
             current_app._get_current_object(),  # type: ignore[attr-defined]
         )
         future.add_done_callback(
-            partial(handle_background_completion, operation_id=operation_id, progress_store=context.progress_store)
+            partial(handle_background_completion, operation_id=operation_id, progress_store=services.progress_store)
         )
         logger.info("Background processing queued: op=%s", operation_id[:8])
 
@@ -449,14 +410,7 @@ def register_routes(app: Flask) -> None:
         if denied is not None:
             return denied
 
-        service = get_app_context().service_container
-        if not is_processor_available():
-            return jsonify({"error": "Service not available"}), 500
-
         try:
-            if not service.has(IFileManager):
-                return jsonify({"error": "File management not available"}), 404
-
             audio_dir = Path(app.config["AUDIO_FOLDER"])
             if not audio_dir.exists():
                 return jsonify({"error": "Audio directory not found"}), 404
@@ -483,22 +437,15 @@ def register_routes(app: Flask) -> None:
         if denied is not None:
             return denied
 
-        service = get_app_context().service_container
-        if not is_processor_available():
-            return jsonify({"error": "Service not available"}), 500
+        try:
+            max_age_hours = float(request.form.get("max_age_hours", 24.0))
+        except ValueError:
+            return jsonify({"error": "max_age_hours must be a number"}), 400
+        if not math.isfinite(max_age_hours) or max_age_hours <= 0:
+            return jsonify({"error": "max_age_hours must be a positive number"}), 400
 
         try:
-            if not service.has(IFileManager):
-                return jsonify({"error": "File management not available"}), 404
-
-            try:
-                max_age_hours = float(request.form.get("max_age_hours", 24.0))
-            except ValueError:
-                return jsonify({"error": "max_age_hours must be a number"}), 400
-            if not math.isfinite(max_age_hours) or max_age_hours <= 0:
-                return jsonify({"error": "max_age_hours must be a positive number"}), 400
-
-            cleanup_result = service.get(IFileManager).cleanup_old_files(max_age_hours)
+            cleanup_result = get_services().file_manager.cleanup_old_files(max_age_hours)
             if cleanup_result.is_failure or cleanup_result.value is None:
                 return jsonify({"error": str(cleanup_result.error)}), 500
 

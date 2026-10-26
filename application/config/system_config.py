@@ -27,7 +27,7 @@ from domain.config.tts_config import GeminiConfig, PiperConfig, TTSConfig, TTSEn
 from .app_configs import AdminConfig, FlaskConfig
 from .file_configs import FileCleanupConfig, FileConfig
 from .logging_config import LoggingConfig
-from .processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
+from .processing_configs import AudioConfig, LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,9 @@ class SystemConfig:
 
     # Admin endpoint gating (disabled by default)
     admin: AdminConfig = field(default_factory=AdminConfig)
+
+    # Audio assembly (inter-sentence gap), shared by every TTS engine
+    audio: AudioConfig = field(default_factory=AudioConfig)
 
     # System-level settings
     project_root: str = ""
@@ -97,6 +100,7 @@ class SystemConfig:
         cleanup_config = cls._parse_cleanup_config(get_config)
         text_config = cls._parse_text_processing_config(get_config)
         performance_config = cls._parse_performance_config(get_config)
+        audio_config = cls._parse_audio_config(get_config)
         flask_config = cls._parse_flask_config(get_config)
         ocr_config = cls._parse_ocr_config(get_config)
         llm_config = cls._parse_llm_config(get_config)
@@ -120,6 +124,7 @@ class SystemConfig:
             piper=piper_config,
             logging_config=logging_config,
             admin=admin_config,
+            audio=audio_config,
             project_root=project_root,
         )
 
@@ -224,7 +229,6 @@ class SystemConfig:
             speaker_id=cls._parse_optional_int_value(get_config("tts.piper.speaker_id", None)),
             noise_scale=cls._parse_float_value(get_config("tts.piper.noise_scale", 0.667), 0.667, 0.0, 2.0),
             noise_w=cls._parse_float_value(get_config("tts.piper.noise_w", 0.8), 0.8, 0.0, 2.0),
-            sentence_silence=cls._parse_float_value(get_config("tts.piper.sentence_silence", 0.2), 0.2, 0.0, 5.0),
             download_dir=cls._parse_string_value(get_config("tts.piper.download_dir", "piper_models"), "piper_models"),
         )
 
@@ -274,6 +278,13 @@ class SystemConfig:
             max_concurrent_operations=cls._parse_int_value(
                 get_config("performance.max_concurrent_operations", 2), 2, 1, 8
             ),
+        )
+
+    @classmethod
+    def _parse_audio_config(cls, get_config: ConfigAccessor) -> AudioConfig:
+        """Parse audio assembly configuration."""
+        return AudioConfig(
+            sentence_gap=cls._parse_float_value(get_config("audio.sentence_gap", 0.2), 0.2, 0.0, 5.0),
         )
 
     @classmethod
@@ -485,6 +496,7 @@ class SystemConfig:
             f"Text Cleaning: {'Enabled' if self.text_processing.enable_cleaning else 'Disabled'}",
             f"Async Audio: {'Enabled' if self.performance.enable_async_audio else 'Disabled'}",
             f"Audio Concurrent Chunks: {self.performance.audio_concurrent_chunks}",
+            f"Sentence Gap: {self.audio.sentence_gap}s",
             f"TTS Concurrent Requests: {self.tts.concurrent_requests}",
             f"LLM Model: {self.llm.model_name}",
             f"OCR Language: {self.ocr.language}",

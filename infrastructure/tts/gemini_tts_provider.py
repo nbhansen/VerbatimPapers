@@ -224,3 +224,11 @@ class GeminiTTSProvider(ITTSEngine):
         """Whether this engine supports SSML."""
         # Gemini takes a text prompt, not SSML. Delivery is steered by style_prompt instead.
         return False
+
+    def check_ready(self) -> Result[None]:
+        """Ready once the client is built; the service itself is only reached on first request."""
+        if self._initialization_error:
+            return Result.failure(tts_engine_error(self._initialization_error))
+        if not self.client:
+            return Result.failure(tts_engine_error("Gemini Client not initialized"))
+        return Result.success(None)

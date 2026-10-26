@@ -100,12 +100,12 @@ This project uses **hexagonal architecture** — dependencies always point inwar
 
 - **`domain/`** — Pure business logic with no external dependencies. Contains interfaces, models, errors, and core engines.
 - **`infrastructure/`** — Implements interfaces defined in `domain/interfaces.py`. Contains TTS providers, OCR, LLM, and file management.
-- **`application/`** — Orchestrates domain + infrastructure. Contains configuration, DI context, and service coordination.
+- **`application/`** — Orchestrates domain + infrastructure. Contains configuration, the composition root (`composition.py`), and service coordination.
 
 Key patterns:
 - **`Result[T]`** (`domain/errors.py`) — Return `Result.success(value)` or `Result.failure(ApplicationError(...))` instead of raising exceptions
-- **Deferred error handling** — TTS provider constructors never raise; initialization errors are stored and returned as `Result.failure()` on first use
-- **Immutable DI** — `ServiceContainer` (`application/container/service_container.py`, implementing `IServiceContainer` from `domain/container/`) uses lazy initialization with factory lambdas
+- **Deferred error handling** — TTS provider constructors never raise; initialization errors are stored and reported by `check_ready()`, which `create_app` calls at startup so a broken engine stops the app before it serves
+- **Explicit wiring** — `Services` (`application/composition.py`) builds each dependency in a typed `cached_property` and passes it in through constructors, so mypy checks the whole graph. `create_app` builds everything up front, so request threads only read it
 - **Interfaces** — Define clear interfaces in `domain/interfaces.py` for all external dependencies
 
 ### Testing
@@ -142,20 +142,20 @@ The project uses pytest with markers for test categorization:
 #### Adding a New TTS Provider
 1. Create `infrastructure/tts/your_provider.py` implementing `ITTSEngine` from `domain/interfaces.py`
 2. Add configuration dataclass to `domain/config/tts_config.py`
-3. Add factory branch in `ServiceContainer._create_tts_engine()`
+3. Add a branch to `Services.tts_engine` in `application/composition.py`, and implement `check_ready()`
 4. Write unit tests and integration tests
 
 #### Text Processing Features
 1. Define interface in `domain/interfaces.py`
 2. Implement in `domain/text/`
 3. Add infrastructure provider if needed
-4. Wire through `ServiceContainer`
+4. Wire through `Services` (`application/composition.py`)
 5. Write tests
 
 #### Audio Processing Features
 1. Define interface if needed
 2. Implement in `domain/audio/`
-3. Wire through `ServiceContainer`
+3. Wire through `Services` (`application/composition.py`)
 4. Test with both TTS engines
 
 ## Pull Request Process
