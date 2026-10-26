@@ -8,8 +8,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 import dataclasses
 from io import BytesIO
-import json
 from pathlib import Path
+import re
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -26,7 +26,7 @@ from domain.config.tts_config import PiperConfig, TTSConfig, TTSEngine
 from domain.errors import Result
 from domain.models import PageRange, PDFInfo, TimedAudioResult
 from routes import register_routes
-from tests.test_helpers import fake_segments
+from tests.test_helpers import FakeTTSEngine, fake_segments
 
 # === Flask App Test Fixtures ===
 
@@ -201,89 +201,6 @@ class TestEndToEndPDFConversion:
                 except Exception as e:
                     print(f"❌ Could not validate {file.name}: {e}")
 
-    @patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider")
-    @patch("infrastructure.ocr.tesseract_ocr_provider.TesseractOCRProvider")
-    def test_pdf_to_audio_with_timing_data(
-        self,
-        mock_ocr,
-        mock_tts,
-        client: FlaskClient,
-        sample_pdf_content: bytes,
-        flask_test_config: SystemConfig,
-    ) -> None:
-        """Test PDF conversion WITH timing data for read-along functionality.
-
-        This test validates:
-        - Upload with timing enabled
-        - Timing metadata generation
-        - JSON timing data creation
-        - Read-along interface availability
-        - Proper file structure for read-along
-        """
-        # Configure mocks for timing-aware processing
-        mock_ocr_instance = MagicMock()
-        mock_ocr_instance.extract_text.return_value = Result.success(
-            "First sentence for timing test. "
-            "Second sentence with different timing. "
-            "Third sentence to complete the test."
-        )
-        mock_ocr_instance.get_pdf_info.return_value = Result.success(
-            PDFInfo(total_pages=1, title="Timing Test Document", author="Test Author")
-        )
-        mock_ocr.return_value = mock_ocr_instance
-
-        mock_tts_instance = MagicMock()
-
-        # Mock timing-aware TTS generation: one segment per sentence, so the
-        # timing engine gets real per-sentence durations to lay out
-        def synthesize_side_effect(text: str) -> Result[object]:
-            return Result.success(fake_segments(text))
-
-        mock_tts_instance.synthesize.side_effect = synthesize_side_effect
-        mock_tts_instance.get_output_format.return_value = "wav"
-        mock_tts_instance.supports_timing.return_value = True
-        mock_tts_instance.supports_ssml.return_value = True
-        mock_tts.return_value = mock_tts_instance
-
-        # Execute upload with timing enabled
-        response = client.post(
-            "/upload-with-timing",
-            data={
-                "pdf_file": (BytesIO(sample_pdf_content), "timing_test.pdf"),
-                "page_range_start": "",
-                "page_range_end": "",
-                "enable_plain_english": "false",
-            },
-            content_type="multipart/form-data",
-        )
-
-        # Validate response
-        assert response.status_code == 200, f"Timing upload failed with status {response.status_code}"
-        response_text = response.get_data(as_text=True)
-
-        # Validate timing-specific elements in response
-        assert (
-            "read-along" in response_text.lower()
-            or "timing" in response_text.lower()
-            or "has_timing_data" in response_text.lower()
-        ), "Response should indicate timing data availability"
-
-        # Validate file system for timing data
-        audio_dir = Path(flask_test_config.files.audio_folder)
-        timing_files = list(audio_dir.glob("*_timing.json"))
-
-        # Note: Timing file creation depends on successful audio processing
-        # If the pipeline completes successfully, timing files should exist
-        if timing_files:
-            # Validate timing JSON structure if file was created
-            timing_file = timing_files[0]
-            with timing_file.open() as f:
-                timing_data = json.load(f)
-
-            assert "total_duration" in timing_data, "Timing JSON should have total_duration"
-            assert "text_segments" in timing_data, "Timing JSON should have text_segments"
-            assert isinstance(timing_data["text_segments"], list), "text_segments should be a list"
-
     def test_error_handling_invalid_pdf(self, client: FlaskClient) -> None:
         """Test error handling for invalid PDF uploads.
 
@@ -364,72 +281,48 @@ class TestEndToEndPDFConversion:
                 "Response should indicate page range processing"
             )
 
-    def test_read_along_interface_access(self, client: FlaskClient, flask_test_config: SystemConfig) -> None:
-        """Test read-along interface accessibility.
+    def test_timed_upload_read_along_link_loads(
+        self, sample_pdf_content: bytes, flask_test_config: SystemConfig
+    ) -> None:
+        """A timed conversion's result page links to a read-along view that loads.
 
-        This test validates:
-        - Read-along route functionality
-        - Timing data serving
-        - Interface template rendering
-        - API endpoint responses
+        Drives the real flow with only TTS faked: upload with timing, wait for the
+        background job, follow the link on the result page. Guards against the
+        read-along route and the timing engine disagreeing on file names.
         """
-        # Create mock timing data file
-        audio_dir = Path(flask_test_config.files.audio_folder)
-        timing_file = audio_dir / "test_timing.json"
-        audio_file = audio_dir / "test_combined.mp3"
+        with (
+            patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider", return_value=FakeTTSEngine()),
+            patch("application.config.system_config.SystemConfig.from_yaml", return_value=flask_test_config),
+        ):
+            app = create_app()
+            app.config.update({"TESTING": True})
+            register_routes(app)
+            client = app.test_client()
 
-        # Create timing data
-        timing_data = {
-            "total_duration": 10.5,
-            "text_segments": [
-                {
-                    "text": "First test segment",
-                    "start_time": 0.0,
-                    "duration": 3.5,
-                    "segment_type": "sentence",
-                    "chunk_index": 0,
-                    "sentence_index": 0,
-                },
-                {
-                    "text": "Second test segment",
-                    "start_time": 3.5,
-                    "duration": 7.0,
-                    "segment_type": "sentence",
-                    "chunk_index": 0,
-                    "sentence_index": 1,
-                },
-            ],
-            "audio_files": ["test_combined.mp3"],
-        }
+            response = client.post(
+                "/upload-with-timing",
+                data={"pdf_file": (BytesIO(sample_pdf_content), "timing_test.pdf")},
+                content_type="multipart/form-data",
+            )
+            assert response.status_code == 200
+            match = re.search(r'const operationId = "([0-9a-f-]+)"', response.get_data(as_text=True))
+            assert match, "Processing page should carry the operation id"
 
-        with timing_file.open("w") as f:
-            json.dump(timing_data, f)
+            # Let the background job finish before inspecting its result
+            app.config["APP_CONTEXT"].background_executor.shutdown(wait=True)
 
-        # Create dummy audio file
-        audio_file.write_bytes(b"fake_mp3_content")
+            result_page = client.get(f"/result/{match.group(1)}")
+            assert result_page.status_code == 200, result_page.get_data(as_text=True)
+            link = re.search(r'href="(/read-along/[^"]+)"', result_page.get_data(as_text=True))
+            assert link, "Result page should offer Read-Along Mode for a timed conversion"
 
-        # Test read-along interface access
-        response = client.get("/read-along/test_combined.mp3")
+            read_along = client.get(link.group(1))
+            assert read_along.status_code == 200, read_along.get_data(as_text=True)
+            assert "/audio_outputs/timing_test_timed.mp3" in read_along.get_data(as_text=True)
 
-        if response.status_code == 200:
-            # Successfully loaded read-along interface
-            response_text = response.get_data(as_text=True)
-            assert "test_combined.mp3" in response_text, "Should reference audio file"
-
-        elif response.status_code == 404:
-            # Expected if template is missing - that's also a valid test result
-            response_text = response.get_data(as_text=True)
-            assert "not found" in response_text.lower(), "Should indicate file not found"
-
-        # Test timing API endpoint
-        api_response = client.get("/api/timing/test")
-        assert api_response.status_code in [200, 404, 500], "API should respond appropriately"
-
-        if api_response.status_code == 200:
-            # Validate API response structure
-            json_data = api_response.get_json()
-            assert "total_duration" in json_data, "API should return timing data"
-            assert "text_segments" in json_data, "API should include text segments"
+            timing = client.get("/api/timing/timing_test")
+            assert timing.status_code == 200
+            assert timing.get_json()["text_segments"], "Timing data should contain segments"
 
 
 class TestBackgroundProcessingModel:

@@ -24,6 +24,11 @@ from utils import parse_page_range_from_form, parse_plain_english_from_form
 logger = logging.getLogger(__name__)
 
 
+def timing_json_filename(base_filename: str) -> str:
+    """Name of the read-along timing file saved for a conversion's base filename."""
+    return f"{base_filename}_timing.json"
+
+
 class DocumentProcessingService:
     """Service for orchestrating document-to-audio conversion pipeline."""
 
@@ -181,7 +186,7 @@ class DocumentProcessingService:
             ],
         }
 
-        timing_filename = f"{base_filename}_timing.json"
+        timing_filename = timing_json_filename(base_filename)
         timing_path = Path(self.config.files.audio_folder) / timing_filename
 
         try:
