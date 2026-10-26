@@ -16,6 +16,7 @@ from google.genai import types
 from domain.errors import Result, tts_engine_error
 from domain.interfaces import ITTSEngine
 from domain.models import SynthesizedSegment
+from infrastructure.gemini_http import default_http_options
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class GeminiTTSProvider(ITTSEngine):
         style_prompt: str | None = None,
         min_request_interval: float = 2.0,
         max_concurrent_requests: int = 4,
+        http_options: types.HttpOptions | None = None,
     ):
         """Initialize Gemini TTS Provider.
 
@@ -49,6 +51,7 @@ class GeminiTTSProvider(ITTSEngine):
                 DEFAULT_STYLE_PROMPT; pass an empty string to send the text bare.
             min_request_interval: Minimum seconds between the starts of API requests
             max_concurrent_requests: Maximum number of API requests in flight
+            http_options: Client HTTP settings; defaults to retrying transient errors
 
         Both limits are enforced across every caller of this instance, including
         conversions running concurrently on separate threads and event loops.
@@ -66,7 +69,7 @@ class GeminiTTSProvider(ITTSEngine):
 
         self.client: genai.Client | None = None
         try:
-            self.client = genai.Client(api_key=self.api_key)
+            self.client = genai.Client(api_key=self.api_key, http_options=http_options or default_http_options())
             logger.info("Gemini TTS initialized with model=%s, voice=%s", model_name, voice_name)
         except Exception as e:
             self._initialization_error = f"Failed to initialize Gemini Client: {e}"
