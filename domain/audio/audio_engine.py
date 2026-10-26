@@ -29,8 +29,8 @@ from collections.abc import Sequence
 import logging
 from pathlib import Path
 
-from ..errors import ErrorCode, Result, audio_generation_error
-from ..interfaces import IAudioEncoder, IAudioEngine, IFileManager, ITTSEngine
+from ..errors import ErrorCode, Result, audio_generation_error, cancelled_error
+from ..interfaces import CancellationCheck, IAudioEncoder, IAudioEngine, IFileManager, ITTSEngine, never_cancelled
 from ..models import SynthesizedSegment, TextSegment, TimedAudioResult, TimingMetadata
 from ..text.segmentation import chunk_text
 from .audio_assembler import AudioAssembler
@@ -61,7 +61,9 @@ class AudioEngine(IAudioEngine):
         self.max_concurrent = max(1, max_concurrent)
         self.audio_target_chunk_size = audio_target_chunk_size
 
-    def generate(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
+    def generate(
+        self, text_chunks: list[str], output_filename: str, is_cancelled: CancellationCheck = never_cancelled
+    ) -> Result[TimedAudioResult]:
         """Synthesize the text into <output_filename>.mp3 with a measured timeline.
 
         This is the only place text is chunked for TTS: the input is re-packed into
@@ -77,10 +79,15 @@ class AudioEngine(IAudioEngine):
         logger.info("Synthesizing %d chunks (max size %d chars)", len(chunks), self.audio_target_chunk_size)
 
         try:
-            results = asyncio.run(self._synthesize_all(chunks))
+            results = asyncio.run(self._synthesize_all(chunks, is_cancelled))
         except Exception as e:
             logger.exception("Synthesis failed")
             return Result.from_exception(e, ErrorCode.AUDIO_GENERATION_FAILED, retryable=True)
+
+        # Chunks already in flight finish, but nothing is assembled or written
+        if is_cancelled():
+            logger.info("Cancelled after synthesis was stopped; no audio written")
+            return Result.failure(cancelled_error())
 
         all_segments: list[SynthesizedSegment] = []
         timed_segments: list[TextSegment] = []
@@ -122,12 +129,19 @@ class AudioEngine(IAudioEngine):
             )
         )
 
-    async def _synthesize_all(self, chunks: list[str]) -> list[Result[Sequence[SynthesizedSegment]]]:
-        """Synthesize every chunk, at most max_concurrent at a time, keeping input order."""
+    async def _synthesize_all(
+        self, chunks: list[str], is_cancelled: CancellationCheck
+    ) -> list[Result[Sequence[SynthesizedSegment]]]:
+        """Synthesize every chunk, at most max_concurrent at a time, keeping input order.
+
+        A chunk waiting for a slot is skipped once the operation is cancelled.
+        """
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
         async def synthesize(chunk: str) -> Result[Sequence[SynthesizedSegment]]:
             async with semaphore:
+                if is_cancelled():
+                    return Result.failure(cancelled_error())
                 try:
                     return await self.tts_engine.synthesize_async(chunk)
                 except Exception as e:

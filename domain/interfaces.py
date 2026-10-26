@@ -5,7 +5,7 @@ implementations, facilitating testing and modularity.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from .errors import Result
 from .models import (
@@ -16,6 +16,15 @@ from .models import (
     SynthesizedSegment,
     TimedAudioResult,
 )
+
+# Polled between units of work; returns True once the user has cancelled
+CancellationCheck = Callable[[], bool]
+
+
+def never_cancelled() -> bool:
+    """Cancellation check for work that can't be cancelled."""
+    return False
+
 
 # --- Core Service Interfaces ---
 
@@ -133,16 +142,22 @@ class IDocumentEngine(ABC):
         audio_engine: "IAudioEngine",
         text_pipeline: "ITextPipeline",
         llm_chunk_size: int = 50000,
+        is_cancelled: CancellationCheck = never_cancelled,
     ) -> Result[TimedAudioResult]:
-        """Complete document processing workflow."""
+        """Complete document processing workflow; stops early with a CANCELLED error once is_cancelled()."""
 
 
 class IAudioEngine(ABC):
     """Interface for audio operations using Result[T] pattern."""
 
     @abstractmethod
-    def generate(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
-        """Synthesize text chunks into one MP3 and the timeline that read-along plays against."""
+    def generate(
+        self, text_chunks: list[str], output_filename: str, is_cancelled: CancellationCheck = never_cancelled
+    ) -> Result[TimedAudioResult]:
+        """Synthesize text chunks into one MP3 and the timeline that read-along plays against.
+
+        No chunk is started once is_cancelled() is true, and a cancelled run writes no file.
+        """
 
 
 class ITextPipeline(ABC):

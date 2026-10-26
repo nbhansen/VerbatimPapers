@@ -132,7 +132,11 @@ class DocumentProcessingService:
 
             # Core processing
             processing_result = self.document_engine.process_document(
-                request_obj, self.audio_engine, text_pipeline, self.config.text_processing.llm_chunk_size
+                request_obj,
+                self.audio_engine,
+                text_pipeline,
+                self.config.text_processing.llm_chunk_size,
+                is_cancelled=lambda: self.progress_store.is_cancelled(operation_id),
             )
 
             if self.progress_store.is_cancelled(operation_id):

@@ -10,7 +10,7 @@ import pytest
 
 from domain.audio.audio_assembler import AudioAssembler
 from domain.audio.audio_engine import AudioEngine
-from domain.errors import Result
+from domain.errors import ErrorCode, Result
 from domain.models import SynthesizedSegment
 from infrastructure.file.file_manager import FileManager
 from tests.test_helpers import FakeAudioEncoder, FakeTTSEngine, fake_segments
@@ -148,3 +148,38 @@ class TestGenerate:
         result = _engine(file_manager).generate(["   ", ""], "doc")
 
         assert result.is_failure
+
+
+class TestCancellation:
+    """Cancelling stops new chunks from starting, and nothing is written."""
+
+    def test_cancel_mid_run_starts_no_further_chunks(self, file_manager: FileManager) -> None:
+        """With one chunk at a time, a cancel after the second chunk leaves the rest unsynthesized."""
+        tts = FakeTTSEngine()
+        encoder = FakeAudioEncoder()
+
+        def cancelled() -> bool:
+            return len(tts.generated_texts) >= 2
+
+        result = _engine(file_manager, tts=tts, encoder=encoder, max_concurrent=1, chunk_size=10).generate(
+            [f"Chunk {i}." for i in range(6)], "doc", is_cancelled=cancelled
+        )
+
+        assert result.is_failure and result.error is not None
+        assert result.error.code == ErrorCode.CANCELLED
+        assert tts.generated_texts == ["Chunk 0.", "Chunk 1."]
+        assert encoder.encoded == {}
+        assert not (Path(file_manager.get_output_dir()) / "doc.mp3").exists()
+
+    def test_cancel_after_last_chunk_still_writes_nothing(self, file_manager: FileManager) -> None:
+        """A cancel that lands while the final chunks finish still publishes no audio."""
+        tts = FakeTTSEngine()
+        encoder = FakeAudioEncoder()
+
+        result = _engine(file_manager, tts=tts, encoder=encoder, chunk_size=10).generate(
+            ["Chunk 0.", "Chunk 1."], "doc", is_cancelled=lambda: len(tts.generated_texts) == 2
+        )
+
+        assert result.is_failure and result.error is not None
+        assert result.error.code == ErrorCode.CANCELLED
+        assert encoder.encoded == {}

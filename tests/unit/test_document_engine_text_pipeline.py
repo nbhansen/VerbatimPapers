@@ -92,3 +92,23 @@ class TestChunking:
         _engine()._process_text_pipeline([page], pipeline, llm_chunk_size=50000)
 
         assert pipeline.clean_text.call_args.args[0] == page
+
+
+class TestCancellation:
+    """A cancel between LLM chunks stops cleaning; the LLM is not paid for the rest."""
+
+    def test_cancel_stops_cleaning_between_chunks(self) -> None:
+        """After the first chunk is cleaned and the user cancels, no further chunk is sent."""
+        pipeline = Mock()
+        pipeline.clean_text.side_effect = Result.success
+
+        result = _engine()._process_text_pipeline(
+            ["One. Two. Three. Four."],
+            pipeline,
+            llm_chunk_size=5,
+            is_cancelled=lambda: pipeline.clean_text.call_count >= 1,
+        )
+
+        assert result.is_failure and result.error is not None
+        assert result.error.code == ErrorCode.CANCELLED
+        assert pipeline.clean_text.call_count == 1

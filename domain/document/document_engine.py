@@ -10,14 +10,17 @@ from ..errors import (
     ErrorCode,
     Result,
     audio_generation_error,
+    cancelled_error,
     text_extraction_error,
 )
 from ..interfaces import (
+    CancellationCheck,
     IAudioEngine,
     IDocumentEngine,
     IOCRProvider,
     IPdfTextExtractor,
     ITextPipeline,
+    never_cancelled,
 )
 from ..models import PageRange, PDFInfo, ProcessingRequest, TimedAudioResult
 from ..text.segmentation import chunk_text
@@ -84,6 +87,7 @@ class DocumentEngine(IDocumentEngine):
         audio_engine: IAudioEngine,
         text_pipeline: ITextPipeline,
         llm_chunk_size: int = 50000,
+        is_cancelled: CancellationCheck = never_cancelled,
     ) -> Result[TimedAudioResult]:
         """Complete document processing workflow using Result[T] pattern.
 
@@ -99,7 +103,10 @@ class DocumentEngine(IDocumentEngine):
             return Result.failure(text_extraction_error("Text extraction returned no chunks"))
 
         # Process text through LLM cleaning and optimization pipeline
-        processed_result = self._process_text_pipeline(text_chunks, text_pipeline, llm_chunk_size)
+        if is_cancelled():
+            return Result.failure(cancelled_error())
+
+        processed_result = self._process_text_pipeline(text_chunks, text_pipeline, llm_chunk_size, is_cancelled)
         if processed_result.is_failure:
             return Result.failure(processed_result.error)  # type: ignore[arg-type]
         processed_chunks = processed_result.value
@@ -107,7 +114,10 @@ class DocumentEngine(IDocumentEngine):
         if processed_chunks is None:
             return Result.failure(audio_generation_error("Text processing returned no chunks"))
 
-        audio_result = self._generate_audio_output(processed_chunks, request.output_name, audio_engine)
+        if is_cancelled():
+            return Result.failure(cancelled_error())
+
+        audio_result = self._generate_audio_output(processed_chunks, request.output_name, audio_engine, is_cancelled)
         if audio_result.is_failure:
             return Result.failure(audio_result.error)  # type: ignore[arg-type]
 
@@ -137,7 +147,11 @@ class DocumentEngine(IDocumentEngine):
         return Result.success(text_chunks)
 
     def _process_text_pipeline(
-        self, text_chunks: list[str], text_pipeline: ITextPipeline, llm_chunk_size: int
+        self,
+        text_chunks: list[str],
+        text_pipeline: ITextPipeline,
+        llm_chunk_size: int,
+        is_cancelled: CancellationCheck = never_cancelled,
     ) -> Result[list[str]]:
         """Process text through LLM cleaning and optimization pipeline."""
         logger.debug("Using optimized chunking strategy (LLM chunk size: %d)", llm_chunk_size)
@@ -150,6 +164,8 @@ class DocumentEngine(IDocumentEngine):
             # Step 2: Process through LLM cleaning
             cleaned_chunks = []
             for i, combined_chunk in enumerate(combined_chunks, 1):
+                if is_cancelled():
+                    return Result.failure(cancelled_error())
                 logger.debug("Processing LLM chunk %d/%d (%d chars)", i, len(combined_chunks), len(combined_chunk))
                 logger.debug("Combined text preview: '%s...'", combined_chunk[:100])
 
@@ -182,11 +198,15 @@ class DocumentEngine(IDocumentEngine):
             return Result.from_exception(e, ErrorCode.TEXT_CLEANING_FAILED, retryable=True)
 
     def _generate_audio_output(
-        self, processed_chunks: list[str], output_name: str, audio_engine: IAudioEngine
+        self,
+        processed_chunks: list[str],
+        output_name: str,
+        audio_engine: IAudioEngine,
+        is_cancelled: CancellationCheck = never_cancelled,
     ) -> Result[TimedAudioResult]:
         """Generate the audio and its timeline."""
         try:
-            audio_result = audio_engine.generate(processed_chunks, output_name)
+            audio_result = audio_engine.generate(processed_chunks, output_name, is_cancelled)
 
             logger.debug("audio_result=%s", audio_result)
 
