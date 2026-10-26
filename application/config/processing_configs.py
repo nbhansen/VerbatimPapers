@@ -15,9 +15,13 @@ class TextProcessingConfig:
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """LLM configuration for text cleaning."""
+    """LLM configuration for text cleaning.
 
-    model_name: str | None = None
+    model_name is a text model. It is deliberately independent of
+    GeminiConfig.model_name, which must be a speech (*-tts) model.
+    """
+
+    model_name: str = "gemini-2.5-flash"
     concurrent_requests: int = 3
     request_delay_seconds: float = 0.5
 

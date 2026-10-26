@@ -15,16 +15,22 @@ from domain.document.document_engine import DocumentEngine
 from domain.interfaces import IAudioEngine, IDocumentEngine
 from infrastructure.llm.gemini_llm_provider import GeminiLLMProvider
 from infrastructure.ocr.tesseract_ocr_provider import TesseractOCRProvider
+from infrastructure.tts.gemini_tts_provider import GeminiTTSProvider
 from tests.test_helpers import FakeTTSEngine
 
 EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "config.example.yaml"
 
 
-def _load_example(tmp_path: Path, overrides: dict[str, dict[str, Any]] | None = None) -> SystemConfig:
-    """Load config.example.yaml with per-section overrides applied."""
+def _load_example(
+    tmp_path: Path, overrides: dict[str, dict[str, Any]] | None = None, drop: tuple[str, ...] = ()
+) -> SystemConfig:
+    """Load config.example.yaml with per-section overrides applied and "section.key" entries dropped."""
     data = yaml.safe_load(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
     for section, values in (overrides or {}).items():
         data[section].update(values)
+    for dotted in drop:
+        section, key = dotted.split(".")
+        del data[section][key]
     config_file = tmp_path / "config.yaml"
     config_file.write_text(yaml.safe_dump(data), encoding="utf-8")
     return SystemConfig.from_yaml(str(config_file))
@@ -96,3 +102,24 @@ class TestSettingsReachConsumers:
 
         assert llm.max_concurrent_requests == 7
         assert llm.min_request_interval == 1.5
+
+
+class TestGeminiModelSeparation:
+    """Text cleaning and voice generation use different Gemini models and never share one."""
+
+    def test_llm_model_does_not_fall_back_to_tts_model(self, tmp_path: Path) -> None:
+        """Without llm.model_name, cleaning uses the text default, not the speech-only TTS model."""
+        config = _load_example(
+            tmp_path,
+            {"tts": {"engine": "gemini"}, "secrets": {"google_ai_api_key": "test-key"}},
+            drop=("llm.model_name",),
+        )
+        container = ServiceContainer(config)
+
+        llm = container.get(GeminiLLMProvider)
+        tts: object = container.get("tts_engine")
+
+        assert isinstance(tts, GeminiTTSProvider)
+        assert tts.model_name.endswith("-tts")
+        assert not llm.model_name.endswith("-tts")
+        assert llm.model_name == "gemini-2.5-flash"

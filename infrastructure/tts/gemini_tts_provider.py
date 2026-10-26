@@ -39,7 +39,7 @@ class GeminiTTSProvider(ITTSEngine):
         """Initialize Gemini TTS Provider.
 
         Args:
-            model_name: Gemini model (e.g. gemini-2.0-flash-exp)
+            model_name: Gemini speech model (a *-tts variant, e.g. gemini-2.5-flash-preview-tts)
             api_key: Google AI API Key
             voice_name: Voice to use (e.g. "Kore", "Puck", "Charon", "Fenrir", "Aoede")
             style_prompt: Delivery directive prefixed to the text. None uses

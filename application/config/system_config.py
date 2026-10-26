@@ -323,7 +323,7 @@ class SystemConfig:
     def _parse_llm_config(cls, get_config: ConfigAccessor) -> LLMConfig:
         """Parse LLM configuration (the API key is shared via GeminiConfig)."""
         return LLMConfig(
-            model_name=cls._parse_optional_string_value(get_config("llm.model_name", None)),
+            model_name=cls._parse_string_value(get_config("llm.model_name", "gemini-2.5-flash"), "gemini-2.5-flash"),
             concurrent_requests=cls._parse_int_value(get_config("llm.concurrent_requests", 3), 3, 1, 10),
             request_delay_seconds=cls._parse_float_value(get_config("llm.request_delay_seconds", 0.5), 0.5, 0.1, 5.0),
         )
