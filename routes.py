@@ -11,7 +11,6 @@ import hmac
 import json
 import logging
 import math
-import os
 from pathlib import Path
 from typing import Any
 import uuid
@@ -516,26 +515,6 @@ def register_routes(app: Flask) -> None:
             logger.error("Admin cleanup error: %s", str(e))
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/admin/cleanup_scheduler", methods=["POST"])
-    def trigger_scheduler_cleanup() -> Response | tuple[Response, int]:
-        """Trigger scheduler's manual cleanup."""
-        denied = _require_admin()
-        if denied is not None:
-            return denied
-
-        try:
-            context = get_app_context()
-            scheduler = context.cleanup_scheduler
-
-            if scheduler is None:
-                return jsonify({"error": "Cleanup scheduler not available"}), 500
-
-            return jsonify(scheduler.run_manual_cleanup())
-
-        except Exception as e:
-            logger.error("Scheduler cleanup error: %s", str(e))
-            return jsonify({"error": str(e)}), 500
-
     @app.route("/admin/test")
     def test_admin() -> Response | tuple[Response, int]:
         """Test endpoint to check what's available."""
@@ -546,9 +525,6 @@ def register_routes(app: Flask) -> None:
         try:
             service = get_pdf_service()
 
-            def is_flask_reloader() -> bool:
-                return os.environ.get("WERKZEUG_RUN_MAIN") != "true"
-
             has_file_manager = service.has(IFileManager)
 
             info: dict[str, Any] = {
@@ -557,7 +533,6 @@ def register_routes(app: Flask) -> None:
                 "has_file_manager": has_file_manager,
                 "service_type": service.__class__.__name__,
                 "file_cleanup_enabled": get_app_config().cleanup.enabled,
-                "is_reloader_process": is_flask_reloader(),
             }
 
             if has_file_manager:

@@ -8,6 +8,7 @@ import atexit
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import logging
+import os
 from pathlib import Path
 
 from flask import Flask
@@ -18,6 +19,15 @@ from application.container.service_container import ServiceContainer
 from application.context.application_context import ApplicationContext
 from application.services.progress_store import ThreadSafeProgressStore
 from infrastructure.file.cleanup_scheduler import FileCleanupScheduler
+
+
+def is_serving_process(debug: bool) -> bool:
+    """Whether this process serves requests and should run background services.
+
+    Without the reloader (debug off) there is only one process. With it, the
+    parent just watches files and the child, marked WERKZEUG_RUN_MAIN, serves.
+    """
+    return not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
 
 
 def create_app(config_path: Path | None = None) -> Flask:
@@ -61,8 +71,8 @@ def create_app(config_path: Path | None = None) -> Flask:
         file_manager = service_container.get(IFileManager)
         cleanup_scheduler = FileCleanupScheduler(
             file_manager=file_manager,
-            max_file_age_seconds=int(app_config.cleanup.max_file_age_hours * 3600),
-            check_interval_seconds=300,
+            max_file_age_hours=app_config.cleanup.max_file_age_hours,
+            interval_seconds=app_config.cleanup.auto_cleanup_interval_hours * 3600,
         )
 
     # Bounded worker pool for background document processing: caps concurrent

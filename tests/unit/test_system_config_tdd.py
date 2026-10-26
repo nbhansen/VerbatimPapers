@@ -332,9 +332,7 @@ class TestSystemConfigValidationTDD:
         config = SystemConfig(
             tts=TTSConfig(engine=TTSEngine.PIPER),
             files=FileConfig(),
-            cleanup=FileCleanupConfig(
-                enabled=True, max_file_age_hours=24.0, auto_cleanup_interval_hours=6.0, max_disk_usage_mb=1000
-            ),
+            cleanup=FileCleanupConfig(enabled=True, max_file_age_hours=24.0, auto_cleanup_interval_hours=6.0),
             text_processing=TextProcessingConfig(),
             performance=PerformanceConfig(),
             flask=FlaskConfig(),
@@ -349,9 +347,7 @@ class TestSystemConfigValidationTDD:
         config_invalid_age = SystemConfig(
             tts=TTSConfig(engine=TTSEngine.PIPER),
             files=FileConfig(),
-            cleanup=FileCleanupConfig(
-                enabled=True, max_file_age_hours=0.0, auto_cleanup_interval_hours=6.0, max_disk_usage_mb=1000
-            ),
+            cleanup=FileCleanupConfig(enabled=True, max_file_age_hours=0.0, auto_cleanup_interval_hours=6.0),
             text_processing=TextProcessingConfig(),
             performance=PerformanceConfig(),
             flask=FlaskConfig(),
@@ -367,9 +363,7 @@ class TestSystemConfigValidationTDD:
         config_invalid_interval = SystemConfig(
             tts=TTSConfig(engine=TTSEngine.PIPER),
             files=FileConfig(),
-            cleanup=FileCleanupConfig(
-                enabled=True, max_file_age_hours=24.0, auto_cleanup_interval_hours=-1.0, max_disk_usage_mb=1000
-            ),
+            cleanup=FileCleanupConfig(enabled=True, max_file_age_hours=24.0, auto_cleanup_interval_hours=-1.0),
             text_processing=TextProcessingConfig(),
             performance=PerformanceConfig(),
             flask=FlaskConfig(),
@@ -381,24 +375,6 @@ class TestSystemConfigValidationTDD:
         with pytest.raises(ValueError, match="AUTO_CLEANUP_INTERVAL_HOURS must be positive"):
             config_invalid_interval.validate()
 
-        # Test invalid max_disk_usage_mb - create new config with invalid value
-        config_invalid_disk = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.PIPER),
-            files=FileConfig(),
-            cleanup=FileCleanupConfig(
-                enabled=True, max_file_age_hours=24.0, auto_cleanup_interval_hours=6.0, max_disk_usage_mb=0
-            ),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-            gemini=GeminiConfig(),
-            piper=PiperConfig(),
-        )
-        with pytest.raises(ValueError, match="MAX_DISK_USAGE_MB must be positive"):
-            config_invalid_disk.validate()
-
     def test_validate_file_cleanup_settings_when_disabled(self):
         """Should skip file cleanup validation when cleanup is disabled."""
         config = SystemConfig(
@@ -408,7 +384,6 @@ class TestSystemConfigValidationTDD:
                 enabled=False,
                 max_file_age_hours=0.0,  # Invalid values
                 auto_cleanup_interval_hours=-1.0,
-                max_disk_usage_mb=0,
             ),
             text_processing=TextProcessingConfig(),
             performance=PerformanceConfig(),
@@ -483,9 +458,7 @@ class TestSystemConfigHelperMethodsTDD:
         config = SystemConfig(
             tts=TTSConfig(engine=TTSEngine.GEMINI),
             files=FileConfig(upload_folder="test_uploads", audio_folder="test_audio"),
-            cleanup=FileCleanupConfig(
-                enabled=True, max_file_age_hours=48.0, auto_cleanup_interval_hours=12.0, max_disk_usage_mb=2000
-            ),
+            cleanup=FileCleanupConfig(enabled=True, max_file_age_hours=48.0, auto_cleanup_interval_hours=12.0),
             text_processing=TextProcessingConfig(enable_cleaning=True),
             performance=PerformanceConfig(enable_async_audio=True, audio_concurrent_chunks=8),
             flask=FlaskConfig(),

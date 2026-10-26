@@ -469,7 +469,6 @@ class TestAdminEndpointGating:
         ("GET", "/admin/file_stats"),
         ("GET", "/admin/test"),
         ("POST", "/admin/cleanup"),
-        ("POST", "/admin/cleanup_scheduler"),
     ]
 
     def test_admin_disabled_by_default_returns_404(self, client: FlaskClient) -> None:

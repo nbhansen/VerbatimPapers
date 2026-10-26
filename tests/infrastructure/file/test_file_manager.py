@@ -601,7 +601,7 @@ class TestFileManagerIntegration:
 
 
 class TestCleanupOldFiles:
-    """Test age-based cleanup of the output directory."""
+    """Test age-based cleanup of the output and upload directories."""
 
     @staticmethod
     def _age_file(path: Path, hours: float) -> None:
@@ -628,6 +628,23 @@ class TestCleanupOldFiles:
         assert not old_file.exists()
         assert new_file.exists()
 
+    def test_also_sweeps_orphaned_uploads(self, temp_dir):
+        """Uploads left behind by a crashed job are removed by the same age rule."""
+        manager = FileManager(str(temp_dir / "uploads"), str(temp_dir / "outputs"))
+        orphan = Path(manager.upload_folder) / "op_paper.pdf"
+        orphan.write_bytes(b"%PDF")
+        self._age_file(orphan, hours=2)
+        in_flight = Path(manager.upload_folder) / "op2_paper.pdf"
+        in_flight.write_bytes(b"%PDF")
+
+        result = manager.cleanup_old_files(max_age_hours=1.0)
+
+        assert result.is_success
+        assert result.value is not None
+        assert result.value.files_removed == 1
+        assert not orphan.exists()
+        assert in_flight.exists()
+
     def test_ignores_subdirectories(self, temp_dir):
         """Should never touch directories inside the output folder."""
         manager = FileManager(str(temp_dir / "uploads"), str(temp_dir / "outputs"))
@@ -641,18 +658,6 @@ class TestCleanupOldFiles:
         assert result.value is not None
         assert result.value.files_removed == 0
         assert subdir.exists()
-
-    def test_leaves_upload_folder_untouched(self, temp_dir):
-        """Should only clean the output folder."""
-        manager = FileManager(str(temp_dir / "uploads"), str(temp_dir / "outputs"))
-        upload = Path(manager.upload_folder) / "doc.pdf"
-        upload.write_bytes(b"pdf")
-        self._age_file(upload, hours=48)
-
-        result = manager.cleanup_old_files(max_age_hours=1.0)
-
-        assert result.is_success
-        assert upload.exists()
 
     @pytest.mark.parametrize("bad_age", [0.0, -1.0, -24.0, float("nan"), float("inf")])
     def test_rejects_non_positive_or_non_finite_age(self, temp_dir, bad_age):

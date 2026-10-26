@@ -43,7 +43,7 @@ class IFileManager(ABC):
 
     @abstractmethod
     def cleanup_old_files(self, max_age_hours: float) -> Result[CleanupStats]:
-        """Deletes output files older than max_age_hours; fails on non-positive or non-finite age."""
+        """Deletes output and upload files older than max_age_hours; fails on non-positive or non-finite age."""
 
 
 class ILLMProvider(ABC):

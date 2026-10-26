@@ -72,9 +72,8 @@ files:
   # Auto-cleanup settings
   cleanup:
     enabled: true
-    max_file_age_hours: 24.0        # Delete files older than 24 hours
+    max_file_age_hours: 24.0        # Delete outputs and orphaned uploads older than 24 hours
     auto_cleanup_interval_hours: 6.0 # Run cleanup every 6 hours
-    max_disk_usage_mb: 1000          # Keep total storage under 1GB
 
 # Performance Tuning
 performance:
