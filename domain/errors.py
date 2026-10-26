@@ -14,6 +14,7 @@ class ErrorCode(Enum):
     CONFIGURATION_ERROR = "configuration_error"
     TTS_ENGINE_ERROR = "tts_engine_error"
     LLM_PROVIDER_ERROR = "llm_provider_error"
+    CANCELLED = "cancelled"
     UNKNOWN_ERROR = "unknown_error"
 
 
@@ -124,6 +125,11 @@ def llm_provider_error(details: str | None = None) -> ApplicationError:
         details=details,
         retryable=True,  # API issues, rate limits, etc.
     )
+
+
+def cancelled_error() -> ApplicationError:
+    """Create the error returned when the user cancelled the operation."""
+    return ApplicationError(code=ErrorCode.CANCELLED, message="Cancelled by user", retryable=False)
 
 
 def configuration_error(details: str) -> ApplicationError:

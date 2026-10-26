@@ -283,9 +283,14 @@ class TestEndToEndPDFConversion:
             assert "PLAIN" not in spoken
 
     def test_cancel_mid_conversion(self, sample_pdf_content: bytes, flask_test_config: SystemConfig) -> None:
-        """Cancelling while audio is being generated ends as cancelled: no result page, no upload left."""
+        """Cancelling mid-synthesis stops the work: no further chunks, no MP3, no result page, no upload left."""
         tts = BlockingTTSEngine()
-        config = dataclasses.replace(flask_test_config, text_processing=TextProcessingConfig(enable_cleaning=False))
+        config = dataclasses.replace(
+            flask_test_config,
+            # Page 2 becomes several chunks, synthesized one at a time
+            text_processing=TextProcessingConfig(enable_cleaning=False, audio_target_chunk_size=500),
+            performance=PerformanceConfig(audio_concurrent_chunks=1),
+        )
         with _running_app(config, tts=tts) as (app, client):
             operation_id = _upload(
                 client, sample_pdf_content, "paper.pdf", {"use_page_range": "on", "start_page": "2", "end_page": "2"}
@@ -304,6 +309,8 @@ class TestEndToEndPDFConversion:
         assert progress["result_data"] is None
         assert result_page.status_code == 400
         assert "cancelled" in result_page.get_data(as_text=True)
+        assert len(tts.generated_texts) == 1, "Only the chunk already in flight should be synthesized"
+        assert list(Path(config.files.audio_folder).iterdir()) == [], "A cancelled conversion writes no audio"
         assert list(Path(config.files.upload_folder).iterdir()) == []
 
     @pytest.mark.parametrize("engine", [TTSEngine.PIPER, TTSEngine.GEMINI])

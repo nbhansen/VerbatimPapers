@@ -205,7 +205,7 @@ class TestCancellation:
         """Cancelling mid-conversion leaves the operation cancelled, with no result page or timeline."""
         harness = Harness(config, Result.success(_audio_result()))
 
-        def cancel_then_finish(*_args: object) -> Result[TimedAudioResult]:
+        def cancel_then_finish(*_args: object, **_kwargs: object) -> Result[TimedAudioResult]:
             harness.store.cancel(OPERATION_ID)
             return Result.success(_audio_result())
 
