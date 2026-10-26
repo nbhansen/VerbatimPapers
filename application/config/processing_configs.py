@@ -25,6 +25,13 @@ class LLMConfig:
 
 
 @dataclass(frozen=True)
+class AudioConfig:
+    """Audio assembly settings; engine-independent, so they live outside the TTS sections."""
+
+    sentence_gap: float = 0.2  # Seconds of silence after every sentence
+
+
+@dataclass(frozen=True)
 class OCRConfig:
     """OCR configuration."""
 

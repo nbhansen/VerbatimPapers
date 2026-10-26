@@ -32,7 +32,6 @@ class PiperConfig:
     speaker_id: int | None = None
     noise_scale: float = 0.667  # Speech variability
     noise_w: float = 0.8  # Pronunciation variability
-    sentence_silence: float = 0.2  # Seconds of silence between sentences
     download_dir: str = "piper_models"
 
 

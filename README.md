@@ -114,7 +114,7 @@ Hexagonal layering: the domain is pure stdlib logic, external services live behi
 
 ```mermaid
 graph TD
-    Web["Flask entry points (app.py, routes.py)"] --> App["application (config, DI container, orchestration)"]
+    Web["Flask entry points (app.py, routes.py)"] --> App["application (config, composition root, orchestration)"]
     App --> Domain["domain (core logic + interfaces)"]
     App --> Infra["infrastructure (TTS, LLM, OCR, PDF adapters)"]
     Infra -->|implements domain interfaces| Domain
@@ -127,15 +127,13 @@ VerbatimPapers/
 ├── app.py                 # Flask entry point
 ├── app_factory.py         # Application factory with DI
 ├── routes.py              # Flask route handlers
-├── application/           # App config, DI container, orchestration
+├── application/           # App config, composition root, orchestration
+│   ├── composition.py     # Services: typed wiring of every dependency
 │   ├── config/            # SystemConfig and section configs
-│   ├── container/         # ServiceContainer (concrete DI implementation)
-│   ├── context/           # ApplicationContext (immutable app-wide state)
 │   └── services/          # DocumentProcessingService, progress store
 ├── domain/                # Core business logic (stdlib-only, enforced by a test)
 │   ├── audio/             # AudioEngine, TimingEngine
 │   ├── config/            # TTS config models
-│   ├── container/         # IServiceContainer interface
 │   ├── document/          # DocumentEngine (extraction + OCR fallback logic)
 │   ├── text/              # TextPipeline, chunking strategies
 │   ├── interfaces.py      # Abstract interfaces

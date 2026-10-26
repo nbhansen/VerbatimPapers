@@ -11,7 +11,7 @@ from io import BytesIO
 from pathlib import Path
 import re
 from typing import ClassVar
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from flask import Flask
 from flask.testing import FlaskClient
@@ -23,10 +23,9 @@ from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
 from domain.config.tts_config import PiperConfig, TTSConfig, TTSEngine
-from domain.errors import Result
-from domain.models import PageRange, PDFInfo, TimedAudioResult
+from domain.models import PageRange, TimedAudioResult
 from routes import register_routes
-from tests.test_helpers import FakeTTSEngine, fake_segments
+from tests.test_helpers import FakeTTSEngine
 
 # === Flask App Test Fixtures ===
 
@@ -56,7 +55,7 @@ def flask_test_config(temp_dir: Path) -> SystemConfig:
             llm_chunk_size=500,  # Small chunks for testing
         ),
         performance=PerformanceConfig(),
-        flask=FlaskConfig(debug=True),
+        flask=FlaskConfig(debug=False),  # Serving process: create_app warms services up
         ocr=OCRConfig(),
         llm=LLMConfig(model_name="test-llm-model"),
         piper=PiperConfig(model_name="en_US-lessac-medium"),
@@ -67,9 +66,9 @@ def flask_test_config(temp_dir: Path) -> SystemConfig:
 @pytest.fixture
 def test_app(flask_test_config: SystemConfig) -> Generator[Flask, None, None]:
     """Flask app configured for integration testing."""
-    # Mock external dependencies to focus on integration flow
+    # Fake TTS so startup needs no voice model and conversions run fast
     with (
-        patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True),
+        patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()),
         patch("application.config.system_config.SystemConfig.from_yaml") as mock_config,
     ):
         mock_config.return_value = flask_test_config
@@ -122,11 +121,9 @@ class TestEndToEndPDFConversion:
         - PDF file upload and validation
         - Document processing pipeline
         - Text extraction and cleaning
-        - Audio generation (with real TTS)
+        - Audio generation (TTS faked by the test_app fixture)
         - File management and cleanup
         - Response rendering
-
-        NOTE: This is a REAL end-to-end test using actual services.
         """
         # Execute the upload request
         response = client.post(
@@ -242,44 +239,26 @@ class TestEndToEndPDFConversion:
         - Page validation logic
         - Range-specific output
         """
-        with (
-            patch("infrastructure.ocr.tesseract_ocr_provider.TesseractOCRProvider") as mock_ocr,
-            patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider") as mock_tts,
-        ):
-            # Configure mocks
-            mock_ocr_instance = MagicMock()
-            mock_ocr_instance.extract_text.return_value = Result.success("Page 1 content only")
-            mock_ocr_instance.get_pdf_info.return_value = Result.success(
-                PDFInfo(total_pages=3, title="Multi-page Document", author="Test Author")
-            )
-            mock_ocr.return_value = mock_ocr_instance
+        response = client.post(
+            "/upload",
+            data={
+                "pdf_file": (BytesIO(sample_pdf_content), "multipage.pdf"),
+                "page_range_start": "1",
+                "page_range_end": "1",
+                "enable_plain_english": "false",
+            },
+            content_type="multipart/form-data",
+        )
 
-            mock_tts_instance = MagicMock()
-            mock_tts_instance.synthesize.side_effect = lambda text: Result.success(fake_segments(text))
-            mock_tts_instance.get_output_format.return_value = "wav"
-            mock_tts.return_value = mock_tts_instance
+        # Validate response acknowledges page range
+        assert response.status_code == 200, "Page range processing should succeed"
+        response_text = response.get_data(as_text=True)
 
-            # Test page range processing
-            response = client.post(
-                "/upload",
-                data={
-                    "pdf_file": (BytesIO(sample_pdf_content), "multipage.pdf"),
-                    "page_range_start": "1",
-                    "page_range_end": "1",
-                    "enable_plain_english": "false",
-                },
-                content_type="multipart/form-data",
-            )
-
-            # Validate response acknowledges page range
-            assert response.status_code == 200, "Page range processing should succeed"
-            response_text = response.get_data(as_text=True)
-
-            # Should indicate partial processing
-            page_indicators = ["page", "1-1", "pages 1"]
-            assert any(indicator in response_text.lower() for indicator in page_indicators), (
-                "Response should indicate page range processing"
-            )
+        # Should indicate partial processing
+        page_indicators = ["page", "1-1", "pages 1"]
+        assert any(indicator in response_text.lower() for indicator in page_indicators), (
+            "Response should indicate page range processing"
+        )
 
     def test_timed_upload_read_along_link_loads(
         self, sample_pdf_content: bytes, flask_test_config: SystemConfig
@@ -291,7 +270,7 @@ class TestEndToEndPDFConversion:
         read-along route and the timing engine disagreeing on file names.
         """
         with (
-            patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider", return_value=FakeTTSEngine()),
+            patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()),
             patch("application.config.system_config.SystemConfig.from_yaml", return_value=flask_test_config),
         ):
             app = create_app()
@@ -309,7 +288,7 @@ class TestEndToEndPDFConversion:
             assert match, "Processing page should carry the operation id"
 
             # Let the background job finish before inspecting its result
-            app.config["APP_CONTEXT"].background_executor.shutdown(wait=True)
+            app.config["SERVICES"].background_executor.shutdown(wait=True)
 
             result_page = client.get(f"/result/{match.group(1)}")
             assert result_page.status_code == 200, result_page.get_data(as_text=True)
@@ -330,7 +309,7 @@ class TestEndToEndPDFConversion:
     ) -> None:
         """Two concurrent conversions of identically named PDFs don't overwrite each other."""
         with (
-            patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider", return_value=FakeTTSEngine()),
+            patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()),
             patch("application.config.system_config.SystemConfig.from_yaml", return_value=flask_test_config),
         ):
             app = create_app()
@@ -349,7 +328,7 @@ class TestEndToEndPDFConversion:
                 assert match
                 operation_ids.append(match.group(1))
 
-            app.config["APP_CONTEXT"].background_executor.shutdown(wait=True)
+            app.config["SERVICES"].background_executor.shutdown(wait=True)
 
             audio_dir = Path(flask_test_config.files.audio_folder)
             mp3_links = []
@@ -369,13 +348,13 @@ class TestBackgroundProcessingModel:
 
     def test_background_executor_uses_configured_cap(self, test_app: Flask, flask_test_config: SystemConfig) -> None:
         """The app's worker pool must honor performance.max_concurrent_operations."""
-        context = test_app.config["APP_CONTEXT"]
+        context = test_app.config["SERVICES"]
         expected = flask_test_config.performance.max_concurrent_operations
         assert context.background_executor._max_workers == expected
 
     def test_result_page_shows_selected_page_range(self, test_app: Flask, client: FlaskClient) -> None:
         """/result must display the page range the user selected, not the full document."""
-        context = test_app.config["APP_CONTEXT"]
+        context = test_app.config["SERVICES"]
         context.progress_store.update(
             "op-range",
             "complete",
@@ -399,7 +378,7 @@ class TestBackgroundProcessingModel:
         self, test_app: Flask, client: FlaskClient
     ) -> None:
         """Older result_data without a page_range entry must still render."""
-        context = test_app.config["APP_CONTEXT"]
+        context = test_app.config["SERVICES"]
         context.progress_store.update(
             "op-full",
             "complete",
@@ -485,7 +464,7 @@ def _app_with_admin(base_config: SystemConfig, admin: AdminConfig) -> Generator[
     """Build a test client whose config has the given admin gating settings."""
     config = dataclasses.replace(base_config, admin=admin)
     with (
-        patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True),
+        patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()),
         patch("application.config.system_config.SystemConfig.from_yaml") as mock_config,
     ):
         mock_config.return_value = config
@@ -661,7 +640,7 @@ class TestErrorResponses:
 
     def test_failed_operation_result_shows_escaped_error(self, test_app: Flask) -> None:
         """A failed operation's result page shows its error, escaped, not 'not yet complete'."""
-        store = test_app.config["APP_CONTEXT"].progress_store
+        store = test_app.config["SERVICES"].progress_store
         store.update("op-failed", "error", 0, "Processing failed", is_error=True, error_message=XSS_PAYLOAD)
 
         response = test_app.test_client().get("/result/op-failed")
@@ -670,3 +649,35 @@ class TestErrorResponses:
         assert response.status_code == 500
         assert "Processing failed" in body
         assert XSS_PAYLOAD not in body
+
+
+class TestStartup:
+    """create_app builds every service and checks the TTS engine before serving."""
+
+    def test_unready_tts_engine_fails_startup(self, flask_test_config: SystemConfig) -> None:
+        """A missing voice model is reported at startup, not on the first upload."""
+        with (
+            patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine(should_fail=True)),
+            patch("application.config.system_config.SystemConfig.from_yaml", return_value=flask_test_config),
+            pytest.raises(RuntimeError, match="TTS engine not ready"),
+        ):
+            create_app()
+
+    def test_services_are_built_before_serving(self, test_app: Flask) -> None:
+        """Request threads only read services that warm-up already built."""
+        built = vars(test_app.config["SERVICES"])
+        assert {"document_service", "tts_engine", "background_executor", "progress_store"} <= built.keys()
+
+    def test_reloader_parent_skips_warm_up(
+        self, flask_test_config: SystemConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The debug reloader's file-watching parent never loads the TTS engine."""
+        monkeypatch.delenv("WERKZEUG_RUN_MAIN", raising=False)
+        config = dataclasses.replace(flask_test_config, flask=FlaskConfig(debug=True))
+        with (
+            patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine(should_fail=True)),
+            patch("application.config.system_config.SystemConfig.from_yaml", return_value=config),
+        ):
+            app = create_app()
+
+        assert "tts_engine" not in vars(app.config["SERVICES"])

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from application.config.system_config import SystemConfig
-    from application.container.service_container import ServiceContainer
     from domain.models import TimingMetadata
 
 from application.services.error_formatting import clean_text_for_display, get_processing_stage_error
@@ -38,13 +37,19 @@ class DocumentProcessingService:
 
     def __init__(
         self,
-        service_container: "ServiceContainer",
-        config: "SystemConfig",
+        document_engine: IDocumentEngine,
+        audio_engine: IAudioEngine,
+        text_pipeline: ITextPipeline,
+        plain_english_text_pipeline: ITextPipeline,
         progress_store: ThreadSafeProgressStore,
+        config: "SystemConfig",
     ):
-        self.container = service_container
-        self.config = config
+        self.document_engine = document_engine
+        self.audio_engine = audio_engine
+        self.text_pipeline = text_pipeline
+        self.plain_english_text_pipeline = plain_english_text_pipeline
         self.progress_store = progress_store
+        self.config = config
 
     def process_document_background(
         self,
@@ -74,22 +79,12 @@ class DocumentProcessingService:
                 return
 
             # 2. Execute processing (20-95%)
-            document_engine = self.container.get(IDocumentEngine)
-            audio_engine = self.container.get(IAudioEngine)
-            text_pipeline = self.container.get(ITextPipeline)
-            logger.debug(
-                "Services resolved: document_engine=%s, audio_engine=%s, text_pipeline=%s",
-                type(document_engine).__name__,
-                type(audio_engine).__name__,
-                type(text_pipeline).__name__,
-            )
-
             # Override timing for Gemini TTS (as per original logic in routes.py)
             enable_timing = enable_timing and self.config.tts.engine.value != "gemini"
 
-            # Create custom text pipeline if plain English is requested
+            text_pipeline = self.text_pipeline
             if enable_plain_english:
-                text_pipeline = self.container.get("plain_english_text_pipeline")
+                text_pipeline = self.plain_english_text_pipeline
                 logger.info("Using TextPipeline with plain English conversion enabled")
 
             self.progress_store.update(operation_id, "processing", 20, "Starting document processing...")
@@ -105,8 +100,8 @@ class DocumentProcessingService:
             )
 
             # Core processing
-            processing_result = document_engine.process_document(
-                request_obj, audio_engine, text_pipeline, enable_timing, self.config.text_processing.llm_chunk_size
+            processing_result = self.document_engine.process_document(
+                request_obj, self.audio_engine, text_pipeline, enable_timing, self.config.text_processing.llm_chunk_size
             )
 
             if self.progress_store.is_cancelled(operation_id):

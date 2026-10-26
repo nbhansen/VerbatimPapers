@@ -12,13 +12,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from application.composition import Services
 from application.config.app_configs import FlaskConfig
 from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
-from application.container.service_container import ServiceContainer
 from domain.config.tts_config import PiperConfig, TTSConfig, TTSEngine
-from domain.interfaces import IAudioEngine, IDocumentEngine, IFileManager, ITextPipeline
 from domain.models import PageRange, PDFInfo
 from infrastructure.file.file_manager import FileManager
 
@@ -156,8 +155,8 @@ class TestPDFToAudioPipelineCore:
         pdf_path.write_bytes(test_pdf_content)
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(pipeline_config)
-            document_engine = container.get(IDocumentEngine)
+            container = Services(pipeline_config)
+            document_engine = container.document_engine
 
             # Test PDF info extraction
             pdf_info_result = document_engine.get_pdf_info(str(pdf_path))
@@ -190,8 +189,8 @@ class TestPDFToAudioPipelineCore:
         """
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(pipeline_config)
-            text_pipeline = container.get(ITextPipeline)
+            container = Services(pipeline_config)
+            text_pipeline = container.text_pipeline
 
             # Test text processing
             processing_result = text_pipeline.clean_text(test_text)
@@ -229,8 +228,8 @@ class TestPDFToAudioPipelineCore:
         mock_generate.return_value = fake_audio_data
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(pipeline_config)
-            audio_engine = container.get(IAudioEngine)
+            container = Services(pipeline_config)
+            audio_engine = container.audio_engine
 
             # Test audio generation engine existence
             assert audio_engine is not None
@@ -242,8 +241,8 @@ class TestPDFToAudioPipelineCore:
         nonexistent_path = "/nonexistent/directory/missing.pdf"
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(pipeline_config)
-            document_engine = container.get(IDocumentEngine)
+            container = Services(pipeline_config)
+            document_engine = container.document_engine
 
             # Should handle missing file gracefully - specific implementation detail:
             # TesseractOCRProvider returns a default PDFInfo object on error instead of raising
@@ -264,8 +263,8 @@ class TestPDFToAudioPipelineCore:
         empty_texts = ["", "   ", "\n\n\t", "  \n  \t  "]
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(pipeline_config)
-            text_pipeline = container.get(ITextPipeline)
+            container = Services(pipeline_config)
+            text_pipeline = container.text_pipeline
 
             for empty_text in empty_texts:
                 result = text_pipeline.clean_text(empty_text)
@@ -297,8 +296,8 @@ class TestPDFToAudioPipelineCore:
     def test_chunking_efficiency(self, pipeline_config: SystemConfig) -> None:
         """Should chunk text efficiently for different sizes."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(pipeline_config)
-            text_pipeline = container.get(ITextPipeline)
+            container = Services(pipeline_config)
+            text_pipeline = container.text_pipeline
 
             # Test various text sizes
             test_cases = [
@@ -336,9 +335,9 @@ class TestPDFToAudioFileManagement:
         upload_dir, audio_dir = pipeline_test_dirs
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = ServiceContainer(pipeline_config)
+            container = Services(pipeline_config)
 
-            file_manager = container.get(IFileManager)
+            file_manager = container.file_manager
             assert isinstance(file_manager, FileManager)
 
             # File manager should have correct paths

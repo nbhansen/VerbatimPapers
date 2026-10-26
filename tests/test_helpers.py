@@ -60,6 +60,12 @@ class FakeTTSEngine(ITTSEngine):
         """Return whether this engine supports SSML."""
         return False
 
+    def check_ready(self) -> Result[None]:
+        """Ready unless built to fail."""
+        if self.should_fail:
+            return Result.failure(tts_engine_error("TTS engine not ready"))
+        return Result.success(None)
+
 
 class FakeLLMProvider(ILLMProvider):
     """Fake LLM provider for testing purposes."""

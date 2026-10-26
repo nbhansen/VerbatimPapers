@@ -4,9 +4,9 @@ This module provides a thread-safe implementation for tracking progress
 of document processing operations. Designed for single-user home app
 but with proper locking to prevent race conditions.
 
-The store is a regular service: it is created by the ServiceContainer and
-reaches consumers via constructor injection (DocumentProcessingService) or
-the ApplicationContext (routes). There is no module-level instance.
+The store is a regular service: it is created by Services (application/composition.py)
+and reaches consumers via constructor injection (DocumentProcessingService) or
+the Services instance on the Flask app (routes). There is no module-level instance.
 """
 
 from dataclasses import dataclass

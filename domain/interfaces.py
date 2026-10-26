@@ -117,6 +117,14 @@ class ITTSEngine(ABC):
     def supports_ssml(self) -> bool:
         """Check if this TTS engine supports SSML markup."""
 
+    @abstractmethod
+    def check_ready(self) -> Result[None]:
+        """Report whether the engine can synthesize, without synthesizing anything.
+
+        Checked once at startup so a missing model or runtime is reported then,
+        not on the first conversion.
+        """
+
 
 # --- Domain Engine Interfaces ---
 

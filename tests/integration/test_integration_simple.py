@@ -4,11 +4,11 @@
 import tempfile
 from unittest.mock import patch
 
+from application.composition import Services
 from application.config.app_configs import FlaskConfig
 from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
-from application.container.service_container import ServiceContainer
 from domain.config.tts_config import GeminiConfig, TTSConfig, TTSEngine
 from domain.models import PageRange, ProcessingRequest
 
@@ -46,18 +46,17 @@ def test_service_factory_creation():
         tempfile.TemporaryDirectory(),
         # Mock piper availability to avoid infrastructure dependency
         patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True),
-        patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider"),
+        patch("application.composition.PiperTTSProvider"),
     ):
         config = create_test_config()
-        container = ServiceContainer(config)
+        container = Services(config)
 
         # Verify all main services are available
-        from domain.interfaces import IAudioEngine, IDocumentEngine, IFileManager, ITextPipeline
 
-        assert container.get(IAudioEngine) is not None
-        assert container.get(ITextPipeline) is not None
-        assert container.get(IDocumentEngine) is not None
-        assert container.get(IFileManager) is not None
+        assert container.audio_engine is not None
+        assert container.text_pipeline is not None
+        assert container.document_engine is not None
+        assert container.file_manager is not None
 
 
 def test_basic_workflow_structure():
