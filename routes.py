@@ -20,7 +20,6 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
 from application.config.system_config import SystemConfig
-from application.container.service_container import ServiceContainer
 from application.context.application_context import ApplicationContext
 from application.services.document_service import DocumentProcessingService, timing_json_filename
 from application.services.error_formatting import (
@@ -109,11 +108,6 @@ def handle_background_completion(
 def get_app_context() -> ApplicationContext:
     """Get application context from Flask app context."""
     return current_app.config["APP_CONTEXT"]  # type: ignore[no-any-return]
-
-
-def get_pdf_service() -> ServiceContainer:
-    """Get PDF service from context."""
-    return get_app_context().service_container
 
 
 def is_processor_available() -> bool:
@@ -282,8 +276,7 @@ def register_routes(app: Flask) -> None:
     @app.route("/get_pdf_info", methods=["POST"])
     def get_pdf_info() -> Response | tuple[Response, int]:
         logger.debug("PDF info request received")
-        service = get_pdf_service()
-        if not is_processor_available() or service is None:
+        if not is_processor_available():
             return (
                 jsonify(
                     {
@@ -312,7 +305,7 @@ def register_routes(app: Flask) -> None:
             # Use document engine to get PDF info
             from domain.interfaces import IDocumentEngine
 
-            document_engine = service.get(IDocumentEngine)
+            document_engine = get_app_context().service_container.get(IDocumentEngine)
             pdf_info_result = document_engine.get_pdf_info(str(temp_path))
 
             # Clean up
@@ -338,8 +331,7 @@ def register_routes(app: Flask) -> None:
             (file, error_message) - file if valid, error message if invalid
         """
         logger.debug("Validating upload request")
-        service = get_pdf_service()
-        if not is_processor_available() or service is None:
+        if not is_processor_available():
             return (
                 None,
                 "PDF processing service is temporarily unavailable. Please check your "
@@ -457,7 +449,7 @@ def register_routes(app: Flask) -> None:
         if denied is not None:
             return denied
 
-        service = get_pdf_service()
+        service = get_app_context().service_container
         if not is_processor_available():
             return jsonify({"error": "Service not available"}), 500
 
@@ -491,7 +483,7 @@ def register_routes(app: Flask) -> None:
         if denied is not None:
             return denied
 
-        service = get_pdf_service()
+        service = get_app_context().service_container
         if not is_processor_available():
             return jsonify({"error": "Service not available"}), 500
 
@@ -522,35 +514,6 @@ def register_routes(app: Flask) -> None:
 
         except Exception as e:
             logger.error("Admin cleanup error: %s", str(e))
-            return jsonify({"error": str(e)}), 500
-
-    @app.route("/admin/test")
-    def test_admin() -> Response | tuple[Response, int]:
-        """Test endpoint to check what's available."""
-        denied = _require_admin()
-        if denied is not None:
-            return denied
-
-        try:
-            service = get_pdf_service()
-
-            has_file_manager = service.has(IFileManager)
-
-            info: dict[str, Any] = {
-                "processor_available": is_processor_available(),
-                "service_exists": True,
-                "has_file_manager": has_file_manager,
-                "service_type": service.__class__.__name__,
-                "file_cleanup_enabled": get_app_config().cleanup.enabled,
-            }
-
-            if has_file_manager:
-                file_manager = service.get(IFileManager)
-                info["file_manager_type"] = file_manager.__class__.__name__
-
-            return jsonify(info)
-
-        except Exception as e:
             return jsonify({"error": str(e)}), 500
 
 

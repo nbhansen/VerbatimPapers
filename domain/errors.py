@@ -7,7 +7,6 @@ from typing import TypeVar
 class ErrorCode(Enum):
     """Standard error codes for the application."""
 
-    FILE_NOT_FOUND = "file_not_found"
     TEXT_EXTRACTION_FAILED = "text_extraction_failed"
     TEXT_CLEANING_FAILED = "text_cleaning_failed"
     AUDIO_GENERATION_FAILED = "audio_generation_failed"
@@ -15,9 +14,6 @@ class ErrorCode(Enum):
     CONFIGURATION_ERROR = "configuration_error"
     TTS_ENGINE_ERROR = "tts_engine_error"
     LLM_PROVIDER_ERROR = "llm_provider_error"
-    SSML_PROCESSING_ERROR = "ssml_processing_error"
-    FILE_SIZE_ERROR = "file_size_error"
-    UNSUPPORTED_FILE_TYPE = "unsupported_file_type"
     UNKNOWN_ERROR = "unknown_error"
 
 
@@ -123,44 +119,8 @@ def llm_provider_error(details: str | None = None) -> ApplicationError:
     )
 
 
-def invalid_page_range_error(details: str) -> ApplicationError:
-    """Create an error for invalid page range specifications."""
-    return ApplicationError(
-        code=ErrorCode.INVALID_PAGE_RANGE, message="Invalid page range", details=details, retryable=False
-    )
-
-
 def configuration_error(details: str) -> ApplicationError:
     """Create an error for configuration problems."""
     return ApplicationError(
         code=ErrorCode.CONFIGURATION_ERROR, message="Configuration error", details=details, retryable=False
-    )
-
-
-def file_size_error(size_mb: float, max_size_mb: int) -> ApplicationError:
-    """Create an error for files that exceed size limits."""
-    return ApplicationError(
-        code=ErrorCode.FILE_SIZE_ERROR,
-        message=f"File too large: {size_mb:.1f}MB exceeds maximum {max_size_mb}MB",
-        retryable=False,
-    )
-
-
-def unsupported_file_type_error(file_type: str) -> ApplicationError:
-    """Create an error for unsupported file types."""
-    return ApplicationError(
-        code=ErrorCode.UNSUPPORTED_FILE_TYPE,
-        message=f"Unsupported file type: {file_type}",
-        details="Only PDF files are supported",
-        retryable=False,
-    )
-
-
-def unknown_error(details: str) -> ApplicationError:
-    """Create a generic error for unknown failures."""
-    return ApplicationError(
-        code=ErrorCode.UNKNOWN_ERROR,
-        message="Unknown error",
-        details=details,
-        retryable=True,
     )

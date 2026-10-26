@@ -120,51 +120,6 @@ class TextPipeline(ITextPipeline):
             except Exception:
                 return Result.from_exception(e, ErrorCode.TEXT_CLEANING_FAILED, retryable=True)
 
-    async def clean_text_async(self, raw_text: str) -> Result[str]:
-        """Clean and prepare text for TTS processing asynchronously.
-
-        Returns Result with cleaned text or error.
-        """
-        if not raw_text:
-            return Result.failure(
-                ApplicationError(
-                    code=ErrorCode.TEXT_EXTRACTION_FAILED, message="Empty text provided for cleaning", retryable=False
-                )
-            )
-
-        try:
-            if not self.enable_cleaning or not self.llm_provider:
-                cleaned = self._basic_text_cleanup(raw_text)
-                return Result.success(cleaned)
-
-            # Check if async method is available
-            if not hasattr(self.llm_provider, "generate_content_async"):
-                logger.debug("Async cleaning not available, using sync method")
-                return self.clean_text(raw_text)
-
-            # Use async LLM for advanced cleaning with rate limiting
-            cleaning_prompt = self._generate_cleaning_prompt(raw_text)
-            result = await self.llm_provider.generate_content_async(cleaning_prompt)
-
-            if result.is_success and result.value is not None:
-                cleaned = result.value
-                # Basic validation of LLM output
-                if len(cleaned) > len(raw_text) * 0.3:  # At least 30% of original length
-                    final = self._basic_text_cleanup(cleaned)
-                    return Result.success(final)
-
-            # Fallback to basic cleaning if LLM fails
-            fallback = self._basic_text_cleanup(raw_text)
-            return Result.success(fallback)
-
-        except Exception as e:
-            logger.exception("Async LLM cleaning failed: %s", e)
-            try:
-                fallback = self._basic_text_cleanup(raw_text)
-                return Result.success(fallback)
-            except Exception:
-                return Result.from_exception(e, ErrorCode.TEXT_CLEANING_FAILED, retryable=True)
-
     def split_into_sentences(self, text: str) -> Result[list[str]]:
         """Split text into sentences for individual processing.
 

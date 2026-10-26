@@ -324,8 +324,6 @@ class SystemConfig:
         """Parse LLM configuration (the API key is shared via GeminiConfig)."""
         return LLMConfig(
             model_name=cls._parse_string_value(get_config("llm.model_name", "gemini-2.5-flash"), "gemini-2.5-flash"),
-            concurrent_requests=cls._parse_int_value(get_config("llm.concurrent_requests", 3), 3, 1, 10),
-            request_delay_seconds=cls._parse_float_value(get_config("llm.request_delay_seconds", 0.5), 0.5, 0.1, 5.0),
         )
 
     def validate(self) -> None:
@@ -488,7 +486,7 @@ class SystemConfig:
             f"Async Audio: {'Enabled' if self.performance.enable_async_audio else 'Disabled'}",
             f"Audio Concurrent Chunks: {self.performance.audio_concurrent_chunks}",
             f"TTS Concurrent Requests: {self.tts.concurrent_requests}",
-            f"LLM Concurrent Requests: {self.llm.concurrent_requests}",
+            f"LLM Model: {self.llm.model_name}",
             f"OCR Language: {self.ocr.language}",
             f"Upload Folder: {self.files.upload_folder}",
             f"Audio Folder: {self.files.audio_folder}",

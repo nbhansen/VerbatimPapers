@@ -22,8 +22,6 @@ class LLMConfig:
     """
 
     model_name: str = "gemini-2.5-flash"
-    concurrent_requests: int = 3
-    request_delay_seconds: float = 0.5
 
 
 @dataclass(frozen=True)

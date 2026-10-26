@@ -72,7 +72,6 @@ class TestSettingsReachConsumers:
                 "performance": {"audio_concurrent_chunks": 9},
                 "text_processing": {"audio_target_chunk_size": 1234},
                 "ocr": {"language": "dan", "dpi": 450},
-                "llm": {"concurrent_requests": 7, "request_delay_seconds": 1.5},
                 "secrets": {"google_ai_api_key": "test-key"},
             },
         )
@@ -95,13 +94,6 @@ class TestSettingsReachConsumers:
         assert isinstance(document_engine, DocumentEngine)
         assert document_engine.ocr_resolution == 450
         assert document_engine.audio_target_chunk_size == 1234
-
-    def test_llm_rate_limits(self, container: ServiceContainer) -> None:
-        """LLM concurrency and request spacing come from the llm section."""
-        llm = container.get(GeminiLLMProvider)
-
-        assert llm.max_concurrent_requests == 7
-        assert llm.min_request_interval == 1.5
 
 
 class TestGeminiModelSeparation:

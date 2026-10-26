@@ -55,7 +55,6 @@ class GeminiTTSProvider(ITTSEngine):
         self.min_request_interval = min_request_interval
         self.max_concurrent_requests = max_concurrent_requests
         self.requests_per_minute = requests_per_minute
-        self.output_format = "mp3"  # Gemini audio is typically MP3
         self._initialization_error: str | None = None  # Deferred error handling
 
         self.client: genai.Client | None = None

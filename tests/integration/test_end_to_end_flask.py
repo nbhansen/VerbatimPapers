@@ -506,7 +506,6 @@ class TestAdminEndpointGating:
 
     ADMIN_REQUESTS: ClassVar[list[tuple[str, str]]] = [
         ("GET", "/admin/file_stats"),
-        ("GET", "/admin/test"),
         ("POST", "/admin/cleanup"),
     ]
 
@@ -519,20 +518,20 @@ class TestAdminEndpointGating:
     def test_admin_enabled_without_token_allows_access(self, flask_test_config: SystemConfig) -> None:
         """Enabling admin without a token opens the endpoints (localhost use case)."""
         with _app_with_admin(flask_test_config, AdminConfig(enabled=True)) as admin_client:
-            response = admin_client.get("/admin/test")
+            response = admin_client.get("/admin/file_stats")
             assert response.status_code == 200
 
     def test_admin_token_rejects_missing_or_wrong_header(self, flask_test_config: SystemConfig) -> None:
         """With a token configured, requests without the right header get 403."""
         with _app_with_admin(flask_test_config, AdminConfig(enabled=True, token="hunter2")) as admin_client:  # noqa: S106
-            assert admin_client.get("/admin/test").status_code == 403
-            wrong = admin_client.get("/admin/test", headers={"X-Admin-Token": "wrong"})
+            assert admin_client.get("/admin/file_stats").status_code == 403
+            wrong = admin_client.get("/admin/file_stats", headers={"X-Admin-Token": "wrong"})
             assert wrong.status_code == 403
 
     def test_admin_token_accepts_correct_header(self, flask_test_config: SystemConfig) -> None:
         """The configured token in X-Admin-Token unlocks the endpoints."""
         with _app_with_admin(flask_test_config, AdminConfig(enabled=True, token="hunter2")) as admin_client:  # noqa: S106
-            response = admin_client.get("/admin/test", headers={"X-Admin-Token": "hunter2"})
+            response = admin_client.get("/admin/file_stats", headers={"X-Admin-Token": "hunter2"})
             assert response.status_code == 200
 
 

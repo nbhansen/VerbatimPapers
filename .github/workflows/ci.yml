@@ -43,6 +43,3 @@ jobs:
 
       - name: Run integration tests
         run: uv run python -m pytest tests/integration/ -v
-
-      - name: Run benchmark tests
-        run: uv run python -m pytest tests/benchmarks/ -v

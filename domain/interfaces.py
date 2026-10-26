@@ -50,19 +50,8 @@ class ILLMProvider(ABC):
     """Interface for a Large Language Model provider."""
 
     @abstractmethod
-    def process_text(self, text: str) -> Result[str]:
-        """Processes and enhances text."""
-
-    @abstractmethod
     def generate_content(self, prompt: str) -> Result[str]:
         """Generates content based on a prompt."""
-
-    @abstractmethod
-    async def generate_content_async(self, prompt: str) -> Result[str]:
-        """Generates content based on a prompt asynchronously.
-
-        For providers that don't support native async, this can wrap the sync method.
-        """
 
 
 class IOCRProvider(ABC):
@@ -170,28 +159,6 @@ class IAudioEngine(ABC):
     def generate_simple_audio(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
         """Generate audio without timing complexity - for regular uploads."""
 
-    @abstractmethod
-    async def generate_audio_async(
-        self, text_chunks: list[str], output_name: str, output_dir: str
-    ) -> tuple[list[str], str | None]:
-        """Generate audio files concurrently with coordination."""
-
-    @abstractmethod
-    def process_audio_file(self, file_path: str) -> Result[float]:
-        """Process audio file and return duration."""
-
-    @abstractmethod
-    def combine_audio_files(self, file_paths: list[str], output_path: str) -> Result[str]:
-        """Combine multiple audio files into one."""
-
-
-class IAudioDurationMeasurer(ABC):
-    """Interface for measuring audio file durations."""
-
-    @abstractmethod
-    def get_duration(self, file_path: str) -> Result[float]:
-        """Get audio file duration in seconds."""
-
 
 class ITextPipeline(ABC):
     """Interface for text processing operations using Result[T] pattern."""
@@ -199,10 +166,6 @@ class ITextPipeline(ABC):
     @abstractmethod
     def clean_text(self, raw_text: str) -> Result[str]:
         """Clean and prepare text for TTS."""
-
-    @abstractmethod
-    async def clean_text_async(self, raw_text: str) -> Result[str]:
-        """Clean and prepare text for TTS asynchronously with rate limiting."""
 
     @abstractmethod
     def split_into_sentences(self, text: str) -> Result[list[str]]:

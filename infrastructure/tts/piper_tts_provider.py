@@ -57,7 +57,6 @@ class PiperTTSProvider(ITTSEngine):
         are stored and returned on first call to synthesize().
         """
         self.config = config
-        self.output_format = "wav"
         self.segmenter = TextSegmenter()
         self.model_path = config.model_path
         self.config_path = config.config_path
@@ -126,11 +125,6 @@ class PiperTTSProvider(ITTSEngine):
         if not text or text.strip() == "":
             logger.warning("Empty text provided to Piper TTS")
             return Result.failure(tts_engine_error("Empty text provided"))
-
-        # Skip error messages
-        if text.startswith(("LLM cleaning skipped", "Error:", "Could not convert")):
-            logger.warning("Skipping TTS generation for error message")
-            return Result.failure(tts_engine_error("Cannot generate audio from error message"))
 
         # Strip ALL SSML tags for Piper (it doesn't support any SSML)
         processed_text = self._process_text_for_piper(text)

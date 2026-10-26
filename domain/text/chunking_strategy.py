@@ -7,10 +7,10 @@ Algorithm Overview
 ==================
 
 The chunking system splits text into optimal sizes for TTS processing while
-preserving natural speech boundaries. Two strategies are available:
+preserving natural speech boundaries.
 
-SentenceBasedChunking (default)
--------------------------------
+SentenceBasedChunking
+---------------------
 Priority: Preserve sentence boundaries for natural speech flow.
 
 Algorithm:
@@ -27,20 +27,6 @@ Word-splitting fallback:
    - Accumulates words until approaching max_chunk_size
    - Preserves word integrity (no mid-word splits)
 
-WordBasedChunking
------------------
-Priority: Strict size limits over sentence preservation.
-
-Algorithm:
-1. For each input text chunk:
-   a. Split all text into individual words
-   b. Accumulate words into chunks up to max_chunk_size
-   c. Start new chunk when adding a word would exceed limit
-
-Trade-offs:
-- SentenceBasedChunking: Better speech quality, may produce slightly larger chunks
-- WordBasedChunking: Stricter size control, may break mid-sentence
-
 Configuration:
 - max_chunk_size: Target maximum characters per chunk (recommended: 2000-5000)
 - Smaller chunks = more TTS calls but better memory usage
@@ -48,16 +34,8 @@ Configuration:
 """
 
 from abc import ABC, abstractmethod
-from enum import Enum
 
 from ..errors import ApplicationError, ErrorCode, Result
-
-
-class ChunkingMode(Enum):
-    """Available chunking strategies."""
-
-    SENTENCE_BASED = "sentence"  # Split on sentences first
-    WORD_BASED = "word"  # Split on words if sentences too large
 
 
 class IChunkingStrategy(ABC):
@@ -202,75 +180,3 @@ class SentenceBasedChunking(IChunkingStrategy):
 
         except Exception as e:
             return Result.from_exception(e, ErrorCode.TEXT_EXTRACTION_FAILED, retryable=False)
-
-
-class WordBasedChunking(IChunkingStrategy):
-    """Simple word-based chunking strategy.
-
-    Pure functions with Result[T] pattern - no exceptions thrown.
-    """
-
-    def chunk_text(self, text_chunks: list[str], max_chunk_size: int) -> Result[list[str]]:
-        """Split text on word boundaries only.
-
-        Returns Result with chunked text or error.
-        """
-        if max_chunk_size <= 0:
-            return Result.failure(
-                ApplicationError(
-                    code=ErrorCode.CONFIGURATION_ERROR,
-                    message="Invalid chunk size",
-                    details=f"max_chunk_size must be positive, got {max_chunk_size}",
-                    retryable=False,
-                )
-            )
-
-        if not text_chunks:
-            return Result.success([])
-
-        try:
-            # Combine all chunks first
-            combined_text = " ".join(text_chunks)
-            words = combined_text.split()
-
-            chunks = []
-            current_chunk = ""
-
-            for word in words:
-                # Handle edge case where single word exceeds max size
-                if len(word) > max_chunk_size:
-                    # Add current chunk if exists
-                    if current_chunk.strip():
-                        chunks.append(current_chunk.strip())
-                        current_chunk = ""
-                    # Split oversized word by characters
-                    for i in range(0, len(word), max_chunk_size):
-                        chunks.append(word[i : i + max_chunk_size])
-                elif len(current_chunk) + len(word) + 1 > max_chunk_size:
-                    # Would exceed limit, save current chunk and start new
-                    if current_chunk.strip():
-                        chunks.append(current_chunk.strip())
-                    current_chunk = word
-                else:
-                    # Add word to current chunk
-                    current_chunk += " " + word if current_chunk else word
-
-            # Add final chunk if exists
-            if current_chunk.strip():
-                chunks.append(current_chunk.strip())
-
-            return Result.success(chunks)
-
-        except Exception as e:
-            return Result.from_exception(e, ErrorCode.TEXT_EXTRACTION_FAILED, retryable=False)
-
-
-def create_chunking_strategy(mode: ChunkingMode = ChunkingMode.SENTENCE_BASED) -> IChunkingStrategy:
-    """Factory function to create appropriate chunking strategy.
-
-    Pure function - always returns a valid strategy.
-    """
-    if mode == ChunkingMode.SENTENCE_BASED:
-        return SentenceBasedChunking()
-    else:
-        return WordBasedChunking()

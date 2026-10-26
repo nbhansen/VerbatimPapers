@@ -1,10 +1,10 @@
 # utils.py - Pure utility functions with no domain dependencies
-from typing import Any, Union
+from collections.abc import Mapping
 
 from domain.models import PageRange
 
-# Type alias for form data (can be dict-like or Flask's ImmutableMultiDict)
-FormData = Union[dict[str, Any], Any]  # noqa: UP007  # Any covers Flask's ImmutableMultiDict
+# Flask's ImmutableMultiDict is a Mapping, as is the plain dict the background job gets
+FormData = Mapping[str, str]
 
 
 def allowed_file(filename: str) -> bool:
