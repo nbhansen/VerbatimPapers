@@ -23,6 +23,7 @@ from ..interfaces import (
     ITextPipeline,
 )
 from ..models import PageRange, PDFInfo, ProcessingRequest, TimedAudioResult
+from ..text.segmentation import chunk_text
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +40,12 @@ class DocumentEngine(IDocumentEngine):
         file_manager: IFileManager,
         pdf_extractor: IPdfTextExtractor,
         min_text_threshold: int = 100,
-        audio_target_chunk_size: int = 4000,
         ocr_resolution: int = 300,
     ):
         self.ocr_provider = ocr_provider
         self.file_manager = file_manager
         self.pdf_extractor = pdf_extractor
         self.min_text_threshold = min_text_threshold
-        self.audio_target_chunk_size = audio_target_chunk_size
         self.ocr_resolution = ocr_resolution  # DPI at which pages are rendered for OCR
         logger.debug("DocumentEngine initialized with Result[T] pattern")
 
@@ -161,8 +160,8 @@ class DocumentEngine(IDocumentEngine):
         logger.debug("Using optimized chunking strategy (LLM chunk size: %d)", llm_chunk_size)
 
         try:
-            # Step 1: Combine chunks for LLM processing
-            combined_chunks = self._combine_chunks_for_llm(text_chunks, llm_chunk_size)
+            # Step 1: Pack the pages into sentence-aligned chunks sized for the LLM
+            combined_chunks = chunk_text(" ".join(text_chunks), llm_chunk_size)
             logger.debug("Combined %d original chunks into %d LLM chunks", len(text_chunks), len(combined_chunks))
 
             # Step 2: Process through LLM cleaning
@@ -187,24 +186,14 @@ class DocumentEngine(IDocumentEngine):
             all_cleaned_text = " ".join(cleaned_chunks)
             logger.debug("Combined all cleaned text: %d chars total", len(all_cleaned_text))
 
-            # An image-only PDF extracts as whitespace and cleans down to nothing. Without
-            # this, _split_for_tts("") returns [] and the caller only rejects None, so the
-            # run reports success having produced no audio at all.
+            # An image-only PDF extracts as whitespace and cleans down to nothing;
+            # report that rather than succeeding with no audio at all.
             if not all_cleaned_text.strip():
                 return Result.failure(text_extraction_error("No usable text remained after cleaning"))
 
-            # Step 4: Split cleaned text into optimal chunks for TTS
-            processed_chunks = self._split_for_tts(all_cleaned_text, self.audio_target_chunk_size)
-            logger.debug("Split cleaned text into %d TTS-optimized chunks", len(processed_chunks))
-
-            logger.info(
-                "Processed through optimized pipeline: %d -> %d -> %d chunks",
-                len(text_chunks),
-                len(combined_chunks),
-                len(processed_chunks),
-            )
-
-            return Result.success(processed_chunks)
+            # TTS chunking is the audio engine's job, done once at its configured size
+            logger.info("Cleaned %d pages in %d LLM chunks", len(text_chunks), len(combined_chunks))
+            return Result.success([all_cleaned_text])
 
         except Exception as e:
             return Result.from_exception(e, ErrorCode.TEXT_CLEANING_FAILED, retryable=True)
@@ -283,89 +272,3 @@ class DocumentEngine(IDocumentEngine):
                 # Ignore file cleanup errors - temporary files may already be removed
                 with suppress(OSError, FileNotFoundError):
                     self.file_manager.delete_file(temp_image_path)
-
-    def _combine_chunks_for_llm(self, text_chunks: list[str], llm_chunk_size: int) -> list[str]:
-        """Combine small PDF chunks into larger chunks optimal for LLM processing.
-
-        Pure function - no exceptions thrown.
-        """
-        if not text_chunks:
-            return []
-
-        combined_chunks = []
-        current_chunk = ""
-
-        for chunk in text_chunks:
-            # Check if adding this chunk would exceed the target size
-            if current_chunk and len(current_chunk) + len(chunk) + 1 > llm_chunk_size:
-                # Current chunk is full, start a new one
-                combined_chunks.append(current_chunk.strip())
-                current_chunk = chunk
-            else:
-                # Add to current chunk
-                if current_chunk:
-                    current_chunk += " " + chunk
-                else:
-                    current_chunk = chunk
-
-        # Add the final chunk if it has content
-        if current_chunk.strip():
-            combined_chunks.append(current_chunk.strip())
-
-        return combined_chunks
-
-    def _split_for_tts(self, text: str, target_chunk_size: int = 4000) -> list[str]:
-        """Split enhanced text into chunks optimal for TTS processing.
-
-        Pure function - no exceptions thrown.
-        """
-        if not text:
-            return []
-
-        # Simple sentence-based splitting that handles SSML markup
-        import re
-
-        # Split on sentence boundaries, being careful with SSML tags
-        sentences = re.split(r"([.!?]+(?:\s*(?:<[^>]*>)?\s*))", text)
-
-        # Rejoin sentences with their delimiters
-        sentence_list = []
-        for i in range(0, len(sentences) - 1, 2):
-            sentence = sentences[i]
-            if i + 1 < len(sentences):
-                sentence += sentences[i + 1]
-            sentence_list.append(sentence.strip())
-
-        # Combine sentences into chunks of target size
-        chunks = []
-        current_chunk = ""
-
-        for sentence in sentence_list:
-            if not sentence:
-                continue
-
-            # Check if adding this sentence would exceed target size
-            if current_chunk and len(current_chunk) + len(sentence) + 1 > target_chunk_size:
-                # Current chunk is full, start a new one
-                chunks.append(current_chunk.strip())
-                current_chunk = sentence
-            else:
-                # Add to current chunk
-                if current_chunk:
-                    current_chunk += " " + sentence
-                else:
-                    current_chunk = sentence
-
-        # Add the final chunk if it has content
-        if current_chunk.strip():
-            chunks.append(current_chunk.strip())
-
-        # Fallback: if no chunks created, split by character count
-        if not chunks and text.strip():
-            logger.debug("Sentence splitting failed, using character-based fallback")
-            for i in range(0, len(text), target_chunk_size):
-                chunk = text[i : i + target_chunk_size]
-                if chunk.strip():
-                    chunks.append(chunk.strip())
-
-        return chunks

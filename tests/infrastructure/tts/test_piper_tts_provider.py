@@ -15,7 +15,6 @@ from domain.config.tts_config import PiperConfig
 from domain.errors import ErrorCode, Result
 from domain.models import SynthesizedSegment
 from infrastructure.tts.piper_tts_provider import PiperTTSProvider
-from infrastructure.tts.text_segmenter import TextSegmenter
 
 
 def _piper_chunk(frames: int = 100, sample_rate: int = 100) -> Mock:
@@ -158,68 +157,6 @@ class TestPiperTTSProviderInitialization:
         assert hasattr(provider, "piper_command")
 
 
-class TestPiperTTSProviderSSMLProcessing:
-    """Test SSML text processing for Piper compatibility."""
-
-    def test_process_text_for_piper_removes_all_ssml(self, basic_piper_config: PiperConfig) -> None:
-        """Should remove all SSML tags since Piper doesn't support SSML."""
-        provider = PiperTTSProvider(basic_piper_config)
-
-        ssml_text = """
-        <speak>
-            <break time="1s"/>
-            <emphasis level="strong">Important text</emphasis>
-            <prosody rate="slow" pitch="low">Slow low voice</prosody>
-            Regular text.
-        </speak>
-        """
-
-        result = provider._process_text_for_piper(ssml_text)
-
-        assert "<" not in result
-        assert ">" not in result
-        assert "Important text" in result
-        assert "Slow low voice" in result
-        assert "Regular text." in result
-
-    def test_process_text_for_piper_cleans_whitespace(self, basic_piper_config: PiperConfig) -> None:
-        """Should clean up whitespace after SSML removal."""
-        provider = PiperTTSProvider(basic_piper_config)
-
-        ssml_text = "Text with   <break/>   multiple    spaces."
-        result = provider._process_text_for_piper(ssml_text)
-
-        assert result == "Text with multiple spaces."
-
-    def test_process_text_for_piper_fixes_punctuation_spacing(self, basic_piper_config: PiperConfig) -> None:
-        """Should fix spacing before punctuation after tag removal."""
-        provider = PiperTTSProvider(basic_piper_config)
-
-        ssml_text = "Hello <break/> , world <break/> !"
-        result = provider._process_text_for_piper(ssml_text)
-
-        assert result == "Hello, world!"
-
-    def test_process_text_for_piper_preserves_plain_text(self, basic_piper_config: PiperConfig) -> None:
-        """Should preserve plain text without SSML tags."""
-        provider = PiperTTSProvider(basic_piper_config)
-
-        plain_text = "This is plain text without any markup."
-        result = provider._process_text_for_piper(plain_text)
-
-        assert result == plain_text
-
-
-class TestPiperTTSProviderInterfaces:
-    """Test ITTSEngine interface implementation."""
-
-    def test_supports_ssml(self, basic_piper_config: PiperConfig) -> None:
-        """Should return False since Piper doesn't support SSML."""
-        provider = PiperTTSProvider(basic_piper_config)
-
-        assert provider.supports_ssml() is False
-
-
 class TestPiperReadiness:
     """check_ready reports what synthesize would fail on, without synthesizing."""
 
@@ -287,20 +224,6 @@ class TestPiperTTSProviderTextValidation:
         assert result.is_failure
         assert result.error is not None
         assert "Empty text provided" in str(result.error.details)
-
-    @patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", False)
-    @patch("subprocess.run")
-    def test_synthesize_rejects_ssml_only_content(self, mock_run: Mock, basic_piper_config: PiperConfig) -> None:
-        """Should reject content that becomes empty after SSML removal."""
-        mock_run.return_value = Mock(returncode=0)
-        provider = PiperTTSProvider(basic_piper_config)
-
-        ssml_only = "<break time='2s'/><silence duration='1s'/>"
-        result = provider.synthesize(ssml_only)
-
-        assert result.is_failure
-        assert result.error is not None
-        assert "Text processing resulted in empty content" in str(result.error.details)
 
 
 class TestPiperTTSProviderAvailabilityChecking:
@@ -715,7 +638,6 @@ class TestPiperSegmentProduction:
         with patch.object(PiperTTSProvider, "_check_piper_availability"):
             provider = PiperTTSProvider.__new__(PiperTTSProvider)
         provider.config = config
-        provider.segmenter = TextSegmenter()
 
         def fake_synthesize(text: str, syn_config: object) -> object:
             return iter([_piper_chunk(frames) for _ in range(chunks_per_call)])
@@ -767,7 +689,6 @@ class TestPiperSegmentProduction:
         with patch.object(PiperTTSProvider, "_check_piper_availability"):
             provider = PiperTTSProvider.__new__(PiperTTSProvider)
         provider.config = PiperConfig(download_dir=temp_models_dir)
-        provider.segmenter = TextSegmenter()
         voice = Mock()
         voice.synthesize.return_value = iter([])
         provider.voice_instance = voice  # type: ignore[assignment]

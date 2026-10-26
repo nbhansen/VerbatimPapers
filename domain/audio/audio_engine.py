@@ -32,7 +32,7 @@ from pathlib import Path
 from ..errors import ErrorCode, Result, audio_generation_error
 from ..interfaces import IAudioEncoder, IAudioEngine, IFileManager, ITTSEngine
 from ..models import SynthesizedSegment, TextSegment, TimedAudioResult, TimingMetadata
-from ..text.chunking_strategy import IChunkingStrategy, SentenceBasedChunking
+from ..text.segmentation import chunk_text
 from .audio_assembler import AudioAssembler
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,6 @@ class AudioEngine(IAudioEngine):
         assembler: AudioAssembler | None = None,
         max_concurrent: int = 4,
         audio_target_chunk_size: int = 2000,
-        chunking_strategy: IChunkingStrategy | None = None,
     ):
         self.tts_engine = tts_engine
         self.file_manager = file_manager
@@ -61,14 +60,14 @@ class AudioEngine(IAudioEngine):
         self.assembler = assembler or AudioAssembler()
         self.max_concurrent = max(1, max_concurrent)
         self.audio_target_chunk_size = audio_target_chunk_size
-        self.chunking_strategy = chunking_strategy or SentenceBasedChunking()
 
     def generate(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
-        """Synthesize all chunks into <output_filename>.mp3 with a measured timeline."""
-        chunks_result = self.chunking_strategy.chunk_text(text_chunks, self.audio_target_chunk_size)
-        if chunks_result.is_failure or chunks_result.value is None:
-            return Result.failure(chunks_result.error or audio_generation_error("Chunking returned no chunks"))
-        chunks = [chunk for chunk in chunks_result.value if chunk.strip()]
+        """Synthesize the text into <output_filename>.mp3 with a measured timeline.
+
+        This is the only place text is chunked for TTS: the input is re-packed into
+        sentence-aligned chunks of at most audio_target_chunk_size characters.
+        """
+        chunks = chunk_text(" ".join(text_chunks), self.audio_target_chunk_size)
         if not chunks:
             return Result.failure(audio_generation_error("No text to synthesize"))
 

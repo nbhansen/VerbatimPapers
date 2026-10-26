@@ -4,11 +4,7 @@ import re
 
 
 def clean_text_for_display(text: str) -> str:
-    """Remove SSML markup and pause markers from text for display."""
-    # Remove SSML tags
-    text = re.sub(r"<[^>]+>", "", text)
-
-    # Remove pause markers
+    """Remove pause markers from text for display."""
     text = re.sub(r"\.{3,}", "", text)  # Remove ... sequences
     text = re.sub(r"\(\s*\)", "", text)  # Remove ( ) sequences
     text = re.sub(r"\s+", " ", text)  # Clean up multiple spaces

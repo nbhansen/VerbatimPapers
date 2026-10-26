@@ -5,7 +5,6 @@ from contextlib import suppress
 import logging
 import os
 from pathlib import Path
-import re
 import ssl
 import subprocess  # nosec B404
 import tempfile
@@ -18,7 +17,7 @@ from domain.config import PiperConfig
 from domain.errors import Result, tts_engine_error
 from domain.interfaces import ITTSEngine
 from domain.models import SynthesizedSegment
-from infrastructure.tts.text_segmenter import TextSegmenter
+from domain.text.segmentation import split_sentences
 
 if TYPE_CHECKING:
     from piper.config import SynthesisConfig
@@ -38,7 +37,7 @@ except ImportError:
 
 
 class PiperTTSProvider(ITTSEngine):
-    """Piper TTS Provider with basic SSML support."""
+    """Piper TTS Provider: local neural TTS, one segment per sentence."""
 
     def __init__(
         self,
@@ -57,7 +56,6 @@ class PiperTTSProvider(ITTSEngine):
         are stored and returned on first call to synthesize().
         """
         self.config = config
-        self.segmenter = TextSegmenter()
         self.model_path = config.model_path
         self.config_path = config.config_path
         self.project_root = project_root or str(Path.cwd())  # Secure default
@@ -126,12 +124,6 @@ class PiperTTSProvider(ITTSEngine):
             logger.warning("Empty text provided to Piper TTS")
             return Result.failure(tts_engine_error("Empty text provided"))
 
-        # Strip ALL SSML tags for Piper (it doesn't support any SSML)
-        processed_text = self._process_text_for_piper(text)
-        if not processed_text.strip():
-            logger.error("Text processing resulted in empty content after SSML removal")
-            return Result.failure(tts_engine_error("Text processing resulted in empty content"))
-
         # Check if Piper is available at all
         if not hasattr(self, "piper_method") or not self.piper_method:
             logger.error("Piper TTS not available - neither python library nor command line found")
@@ -144,10 +136,10 @@ class PiperTTSProvider(ITTSEngine):
         try:
             if self.piper_method == "python_library" and self.voice_instance is not None:
                 logger.debug("Using Piper Python library for TTS generation")  # type: ignore[unreachable]
-                segments = self._synthesize_with_python_lib(processed_text)
+                segments = self._synthesize_with_python_lib(text)
             else:
                 logger.debug("Using Piper command line for TTS generation")
-                segments = self._synthesize_with_command_line(processed_text)
+                segments = self._synthesize_with_command_line(text)
 
             if not segments:
                 logger.error("TTS engine returned no audio data")
@@ -168,10 +160,6 @@ class PiperTTSProvider(ITTSEngine):
         import asyncio
 
         return await asyncio.to_thread(self.synthesize, text)
-
-    def supports_ssml(self) -> bool:
-        """Return True if this engine supports SSML markup."""
-        return False  # Piper does NOT support SSML - all tags must be stripped
 
     def check_ready(self) -> Result[None]:
         """Ready once a Piper runtime is found and the voice model is in place."""
@@ -236,23 +224,6 @@ class PiperTTSProvider(ITTSEngine):
             raise Exception(f"SSL verification failed for {url}: {e}") from e
         except Exception as e:
             raise Exception(f"Download failed for {url}: {e}") from e
-
-    # === SSML Processing ===
-
-    def _process_text_for_piper(self, text: str) -> str:
-        """Process text for Piper - strip ALL SSML tags since Piper doesn't support SSML."""
-        if "<" not in text:
-            return text
-
-        # Remove ALL SSML tags - Piper doesn't support any SSML processing
-        # This includes <break>, <emphasis>, <prosody>, etc.
-        clean_text = re.sub(r"<[^>]+>", "", text)
-
-        # Clean up any extra whitespace left after tag removal
-        clean_text = re.sub(r"\s+", " ", clean_text)
-        clean_text = re.sub(r"\s+([.,;!?])", r"\1", clean_text)  # Fix space before punctuation
-
-        return clean_text.strip()
 
     # === Setup Methods ===
 
@@ -331,7 +302,7 @@ class PiperTTSProvider(ITTSEngine):
                 raise Exception("Voice instance not initialized")
 
             syn_config = self._build_synthesis_config()
-            sentences = self.segmenter.split_into_sentences(text) or [text]
+            sentences = split_sentences(text) or [text]
 
             segments: list[SynthesizedSegment] = []
             for sentence in sentences:

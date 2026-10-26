@@ -108,7 +108,6 @@ class Services:
             ocr_provider=self.ocr_provider,
             file_manager=self.file_manager,
             pdf_extractor=self.pdf_extractor,
-            audio_target_chunk_size=self.config.text_processing.audio_target_chunk_size,
             ocr_resolution=self.config.ocr.dpi,
         )
 

@@ -93,14 +93,6 @@ class TestGeminiTTSProviderInitialization:
         assert basic_gemini_provider.check_ready().is_success
 
 
-class TestGeminiTTSProviderInterfaces:
-    """Test ITTSEngine interface implementation."""
-
-    def test_supports_ssml(self, basic_gemini_provider: GeminiTTSProvider) -> None:
-        """Gemini TTS takes plain text prompts, not SSML."""
-        assert basic_gemini_provider.supports_ssml() is False
-
-
 class TestGeminiTTSProviderTextValidation:
     """Test text input validation for TTS generation."""
 

@@ -11,12 +11,17 @@ import unicodedata
 
 from ..errors import ApplicationError, ErrorCode, Result
 from ..interfaces import ITextPipeline
+from .segmentation import chunk_text
 
 logger = logging.getLogger(__name__)
 
 # Invisible characters PDF extraction leaves inside words: soft hyphen,
 # zero-width space/joiners, word joiner and byte-order mark.
 _INVISIBLE_CHARS = re.compile("[\u00ad\u200b-\u200d\u2060\ufeff]")
+
+# Size of the pieces retried when the LLM fails on a whole chunk, and of the
+# pieces sent for plain-English rewriting
+_LLM_SUB_CHUNK_SIZE = 15000
 
 if TYPE_CHECKING:
     from ..interfaces import ILLMProvider
@@ -98,8 +103,8 @@ class TextPipeline(ITextPipeline):
                 logger.warning("LLM failed: %s", llm_result.error)
 
             # If large chunk failed, try processing in smaller pieces
-            if len(raw_text) > 15000:
-                logger.debug("Attempting retry with smaller chunks (15K chars each)")
+            if len(raw_text) > _LLM_SUB_CHUNK_SIZE:
+                logger.debug("Attempting retry with smaller chunks (%d chars each)", _LLM_SUB_CHUNK_SIZE)
                 chunk_result = self._process_in_chunks(raw_text)
                 if chunk_result.is_success:
                     return chunk_result
@@ -120,43 +125,16 @@ class TextPipeline(ITextPipeline):
             except Exception:
                 return Result.from_exception(e, ErrorCode.TEXT_CLEANING_FAILED, retryable=True)
 
-    def split_into_sentences(self, text: str) -> Result[list[str]]:
-        """Split text into sentences for individual processing.
-
-        Returns Result with sentence list or error.
-        """
-        if not text:
-            return Result.success([])
-
-        try:
-            clean_text = text
-
-            # Handle abbreviations better - don't split on Dr., Mr., etc.
-            # Basic sentence splitting with common edge cases
-            sentences = re.split(r"(?<!\bDr\.)(?<!\bMr\.)(?<!\bMs\.)(?<!\bProf\.)(?<=[.!?])\s+(?=[A-Z])", clean_text)
-
-            # Filter out very short sentences and clean up (immutable)
-            valid_sentences = [
-                sentence.strip() for sentence in sentences if sentence.strip() and len(sentence.strip()) > 10
-            ]
-
-            return Result.success(valid_sentences)
-
-        except Exception as e:
-            return Result.from_exception(e, ErrorCode.TEXT_EXTRACTION_FAILED, retryable=False)
-
     def _process_in_chunks(self, raw_text: str) -> Result[str]:
         """Process large text in smaller chunks.
 
         Pure function returning Result.
         """
         try:
-            chunk_size = 15000
             cleaned_parts = []
 
-            for i in range(0, len(raw_text), chunk_size):
-                chunk = raw_text[i : i + chunk_size]
-                logger.debug("Processing sub-chunk %d (%d chars)", i // chunk_size + 1, len(chunk))
+            for i, chunk in enumerate(chunk_text(raw_text, _LLM_SUB_CHUNK_SIZE), 1):
+                logger.debug("Processing sub-chunk %d (%d chars)", i, len(chunk))
 
                 sub_prompt = self._generate_cleaning_prompt(chunk)
                 if self.llm_provider is not None:
@@ -323,14 +301,12 @@ Text to convert:
 
         try:
             # For very large texts, process in chunks
-            if len(text) > 15000:
+            if len(text) > _LLM_SUB_CHUNK_SIZE:
                 logger.debug("Plain English: Processing in chunks")
-                chunk_size = 15000
                 converted_parts = []
 
-                for i in range(0, len(text), chunk_size):
-                    chunk = text[i : i + chunk_size]
-                    logger.debug("Plain English chunk %d (%d chars)", i // chunk_size + 1, len(chunk))
+                for i, chunk in enumerate(chunk_text(text, _LLM_SUB_CHUNK_SIZE), 1):
+                    logger.debug("Plain English chunk %d (%d chars)", i, len(chunk))
 
                     chunk_prompt = self._generate_plain_english_prompt(chunk)
                     chunk_result = self.llm_provider.generate_content(chunk_prompt)

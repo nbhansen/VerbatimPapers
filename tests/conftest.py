@@ -118,7 +118,6 @@ def mock_tts_engine():
 
     mock.synthesize.side_effect = synthesize_side_effect
     mock.synthesize_async.side_effect = synthesize_async_side_effect
-    mock.supports_ssml.return_value = True
 
     return mock
 

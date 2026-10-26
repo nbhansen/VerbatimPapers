@@ -114,10 +114,6 @@ class ITTSEngine(ABC):
         """
 
     @abstractmethod
-    def supports_ssml(self) -> bool:
-        """Check if this TTS engine supports SSML markup."""
-
-    @abstractmethod
     def check_ready(self) -> Result[None]:
         """Report whether the engine can synthesize, without synthesizing anything.
 
@@ -177,7 +173,3 @@ class ITextPipeline(ABC):
     @abstractmethod
     def clean_text(self, raw_text: str) -> Result[str]:
         """Clean and prepare text for TTS."""
-
-    @abstractmethod
-    def split_into_sentences(self, text: str) -> Result[list[str]]:
-        """Split text into sentences for processing."""

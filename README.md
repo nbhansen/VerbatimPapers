@@ -135,7 +135,7 @@ VerbatimPapers/
 │   ├── audio/             # AudioEngine (one synth → assemble → encode pipeline), AudioAssembler
 │   ├── config/            # TTS config models
 │   ├── document/          # DocumentEngine (extraction + OCR fallback logic)
-│   ├── text/              # TextPipeline, chunking strategies
+│   ├── text/              # TextPipeline; segmentation.py: the one sentence splitter and chunker
 │   ├── interfaces.py      # Abstract interfaces
 │   ├── models.py          # Domain models
 │   └── errors.py          # Result[T] pattern
