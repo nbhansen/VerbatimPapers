@@ -19,9 +19,23 @@ jobs:
       - name: Set up Python
         run: uv python install  # version from .python-version
 
+      # The Azure apt mirror regularly stalls mid-download, so the .debs are cached.
+      # apt still installs them itself (restoring installed files directly skips
+      # update-alternatives and left ffmpeg without libblas.so.3).
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-archives
+          key: apt-debs-${{ runner.os }}-tesseract-ffmpeg-espeak-v1
+
       - name: Install system dependencies
-        timeout-minutes: 5
-        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends tesseract-ocr ffmpeg espeak-ng
+        timeout-minutes: 10
+        run: |
+          mkdir -p ~/apt-archives/partial
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 -o dir::cache::archives="$HOME/apt-archives" \
+            install -y --no-install-recommends tesseract-ocr ffmpeg espeak-ng
+          sudo chown -R "$USER" ~/apt-archives
 
       - name: Install dependencies
         run: uv sync --extra dev
