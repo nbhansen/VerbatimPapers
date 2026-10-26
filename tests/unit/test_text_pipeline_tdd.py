@@ -10,6 +10,9 @@ from domain.errors import Result
 from domain.interfaces import ITextPipeline
 from domain.text.text_pipeline import TextPipeline
 
+# Curly quotes and em dash as escapes so the source stays unambiguous
+NON_ASCII_TEXT = "Søren Kierkegaard\u2019s \u201cEither/Or\u201d \u2014 naïve café"
+
 
 class TestTextPipelineBasicFunctionality:
     """TDD tests for basic TextPipeline functionality."""
@@ -53,19 +56,36 @@ class TestTextCleaningTDD:
         assert result.value == "This is text with excessive whitespace."
 
     def test_basic_text_cleanup_removes_pdf_artifacts(self):
-        """Should remove common PDF extraction artifacts."""
+        """Should remove PDF extraction artifacts without touching real characters."""
         pipeline = TextPipeline(enable_cleaning=False)
 
-        text_with_artifacts = "Text with\fform feed and non-ASCII: café résumé"
-        result = pipeline.clean_text(text_with_artifacts)
+        text = "Text with\fform feed, a \ufb01ne liga\u00adture, zero\u200bwidth and\u00a0no-break\x07."
+        result = pipeline.clean_text(text)
 
         assert result.is_success
-        assert result.value is not None
-        # Should remove form feeds and non-ASCII
-        assert "\f" not in result.value
-        assert "café" not in result.value
-        assert "résumé" not in result.value
-        assert "Text with" in result.value
+        assert result.value == "Text with form feed, a fine ligature, zerowidth and no-break."
+
+    def test_basic_text_cleanup_keeps_non_ascii_text(self):
+        """Accented letters, em dashes and curly quotes carry meaning and speech rhythm."""
+        pipeline = TextPipeline(enable_cleaning=False)
+
+        text = NON_ASCII_TEXT
+        result = pipeline.clean_text(text)
+
+        assert result.is_success
+        assert result.value == text
+
+    def test_llm_cleaning_keeps_non_ascii_text(self):
+        """The cleanup pass over the LLM's output must not strip non-ASCII either."""
+        text = NON_ASCII_TEXT
+        mock_llm = Mock()
+        mock_llm.generate_content.return_value = Result.success(text)
+
+        result = TextPipeline(llm_provider=mock_llm, enable_cleaning=True).clean_text(text)
+
+        mock_llm.generate_content.assert_called_once()
+        assert result.is_success
+        assert result.value == text
 
     def test_basic_text_cleanup_normalizes_punctuation(self):
         """Should normalize excessive punctuation."""
@@ -463,20 +483,6 @@ class TestTextPipelinePromptGenerationTDD:
 
 class TestTextPipelineEdgeCasesTDD:
     """TDD tests for edge cases and error conditions."""
-
-    def test_handles_unicode_content_correctly(self):
-        """Should handle unicode content appropriately."""
-        pipeline = TextPipeline(enable_cleaning=False)
-
-        # Unicode text should be handled by basic cleanup (removed in current implementation)
-        unicode_text = "English text with unicode: café résumé naïve"
-        result = pipeline.clean_text(unicode_text)
-
-        # Current implementation removes non-ASCII
-        assert result.is_success
-        assert result.value is not None
-        assert "English text with unicode:" in result.value
-        assert "café" not in result.value
 
     def test_handles_very_long_sentences(self):
         """Should handle extremely long sentences."""

@@ -7,11 +7,16 @@ No exceptions thrown - all errors returned as Result[T].
 import logging
 import re
 from typing import TYPE_CHECKING, Optional
+import unicodedata
 
 from ..errors import ApplicationError, ErrorCode, Result
 from ..interfaces import ITextPipeline
 
 logger = logging.getLogger(__name__)
+
+# Invisible characters PDF extraction leaves inside words: soft hyphen,
+# zero-width space/joiners, word joiner and byte-order mark.
+_INVISIBLE_CHARS = re.compile("[\u00ad\u200b-\u200d\u2060\ufeff]")
 
 if TYPE_CHECKING:
     from ..interfaces import ILLMProvider
@@ -241,12 +246,16 @@ class TextPipeline(ITextPipeline):
 
         Pure function - no exceptions thrown.
         """
-        # Remove excessive whitespace
+        # Fold PDF presentation forms (ligatures, full-width letters, no-break
+        # spaces) into plain characters; accents, dashes and quotes are kept
+        text = unicodedata.normalize("NFKC", text)
+        text = _INVISIBLE_CHARS.sub("", text)
+
+        # Remove excessive whitespace (also covers form feeds)
         text = re.sub(r"\s+", " ", text)
 
-        # Remove common PDF artifacts
-        text = re.sub(r"\f", " ", text)  # Form feed
-        text = re.sub(r"[^\x00-\x7F]+", " ", text)  # Non-ASCII characters
+        # Drop remaining control characters
+        text = "".join(ch for ch in text if unicodedata.category(ch) != "Cc")
 
         # Clean up punctuation
         text = re.sub(r"\.{3,}", "...", text)  # Multiple dots
