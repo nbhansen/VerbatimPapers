@@ -32,7 +32,7 @@
                 </a>
 
                 {% if has_timing_data and base_filename %}
-                <a href="{{ url_for('read_along_view', filename=combined_mp3_file) }}" class="btn btn-secondary read-along-btn">
+                <a href="{{ url_for('read_along_view', base_filename=base_filename) }}" class="btn btn-secondary read-along-btn">
                     <i class="fas fa-book-reader"></i> Read-Along Mode
                     <span class="size-info">Synchronized text highlighting</span>
                 </a>
@@ -54,7 +54,7 @@
                 </a>
 
                 {% if has_timing_data and base_filename %}
-                <a href="{{ url_for('read_along_view', filename=audio_files[0]) }}" class="btn btn-secondary read-along-btn">
+                <a href="{{ url_for('read_along_view', base_filename=base_filename) }}" class="btn btn-secondary read-along-btn">
                     <i class="fas fa-book-reader"></i> Read-Along Mode
                     <span class="size-info">Synchronized text highlighting</span>
                 </a>

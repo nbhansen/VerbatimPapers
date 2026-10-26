@@ -23,7 +23,7 @@ from werkzeug.utils import secure_filename
 from application.config.system_config import SystemConfig
 from application.container.service_container import ServiceContainer
 from application.context.application_context import ApplicationContext
-from application.services.document_service import DocumentProcessingService
+from application.services.document_service import DocumentProcessingService, timing_json_filename
 from application.services.error_formatting import (
     get_processing_stage_error,
 )
@@ -156,47 +156,45 @@ def register_routes(app: Flask) -> None:
     def serve_audio(filename: str) -> Response:
         return send_from_directory(app.config["AUDIO_FOLDER"], filename)
 
-    @app.route("/read-along/<filename>")
-    def read_along_view(filename: str) -> str | tuple[str, int]:
-        """Serve read-along interface for audio file."""
-        # Extract base filename (remove extension and _combined suffix)
-        base_filename = filename.replace("_combined.mp3", "").replace(".mp3", "").replace(".wav", "")
+    @app.route("/read-along/<base_filename>")
+    def read_along_view(base_filename: str) -> str | tuple[str, int]:
+        """Serve the read-along interface for a timed conversion.
 
-        # Check if timing data exists
-        timing_filename = f"{base_filename}_timing.json"
-        timing_path = Path(app.config["AUDIO_FOLDER"]) / timing_filename
-
+        Keyed by the conversion's base filename; the audio file is the one the
+        timing data records, so no filename is derived from another.
+        """
+        timing_path = Path(app.config["AUDIO_FOLDER"]) / timing_json_filename(base_filename)
         if not timing_path.exists():
-            return f"Timing data not found for {filename}. This file was not processed with read-along support.", 404
-
-        # Check if audio file exists
-        audio_path = Path(app.config["AUDIO_FOLDER"]) / filename
-        if not audio_path.exists():
-            return f"Audio file {filename} not found.", 404
-
-        # Load timing data for template rendering
-        import json
+            return "Timing data not found. This file was not processed with read-along support.", 404
 
         try:
-            with timing_path.open() as f:
+            with timing_path.open(encoding="utf-8") as f:
                 timing_json = json.load(f)
-                timing_segments = timing_json.get("text_segments", [])
-        except Exception as e:
-            return f"Error loading timing data: {e}", 500
+        except (OSError, ValueError) as e:
+            get_logger("routes").error("Error loading timing data: %s", str(e))
+            return "Failed to load timing data", 500
+
+        audio_files = timing_json.get("audio_files") or []
+        audio_filename = audio_files[0] if audio_files else None
+        if (
+            not isinstance(audio_filename, str)
+            or Path(audio_filename).name != audio_filename
+            or not (Path(app.config["AUDIO_FOLDER"]) / audio_filename).exists()
+        ):
+            return "Audio file not found.", 404
 
         return render_template(
             "read_along.html",
-            audio_filename=filename,
+            audio_filename=audio_filename,
             base_filename=base_filename,
-            timing_data=timing_segments,
+            timing_data=timing_json.get("text_segments", []),
             timing_api_url=url_for("get_timing_data", filename=base_filename),
         )
 
     @app.route("/api/timing/<filename>")
     def get_timing_data(filename: str) -> Response | tuple[Response, int]:
         """Serve timing metadata as JSON."""
-        timing_filename = f"{filename}_timing.json"
-        timing_path = Path(app.config["AUDIO_FOLDER"]) / timing_filename
+        timing_path = Path(app.config["AUDIO_FOLDER"]) / timing_json_filename(filename)
 
         if not timing_path.exists():
             return jsonify({"error": "Timing data not found"}), 404
