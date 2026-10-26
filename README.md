@@ -21,7 +21,7 @@ This tool converts PDF documents to audio files so you can listen to academic pa
   - **Piper TTS** — Local neural TTS with natural voices (no API key needed)
   - **Gemini TTS** — Cloud-based TTS via Google's Gemini API
 - **Web Interface**: Simple upload → process → download workflow
-- **Read-Along Mode**: Word-level timing data with synchronized text highlighting (Piper only)
+- **Read-Along Mode**: Every conversion comes with synchronized text highlighting, sentence by sentence with Piper and chunk by chunk with Gemini (which returns no sentence boundaries)
 - **Audio Output**: Generates MP3 files ready for any device
 
 ## Workflow Diagram
@@ -132,7 +132,7 @@ VerbatimPapers/
 │   ├── config/            # SystemConfig and section configs
 │   └── services/          # DocumentProcessingService, progress store
 ├── domain/                # Core business logic (stdlib-only, enforced by a test)
-│   ├── audio/             # AudioEngine, TimingEngine
+│   ├── audio/             # AudioEngine (one synth → assemble → encode pipeline), AudioAssembler
 │   ├── config/            # TTS config models
 │   ├── document/          # DocumentEngine (extraction + OCR fallback logic)
 │   ├── text/              # TextPipeline, chunking strategies
@@ -143,6 +143,7 @@ VerbatimPapers/
 │   ├── tts/
 │   │   ├── piper_tts_provider.py   # Piper TTS (local)
 │   │   └── gemini_tts_provider.py  # Gemini TTS (cloud)
+│   ├── audio/             # ffmpeg MP3 encoder
 │   ├── llm/               # Gemini LLM for text cleaning
 │   ├── ocr/               # Tesseract OCR
 │   ├── pdf/               # pdfplumber text extraction
@@ -153,8 +154,7 @@ VerbatimPapers/
 ## API Endpoints
 
 - `GET /` — Upload interface
-- `POST /upload` — Process PDF → MP3
-- `POST /upload-with-timing` — Process with word-level timing data
+- `POST /upload` — Process PDF → MP3 plus read-along timing data
 - `GET /read-along/<base_filename>` — Synchronized reading interface
 - `GET /api/timing/<filename>` — Timing metadata as JSON
 - `GET /api/progress/<operation_id>` — Processing progress

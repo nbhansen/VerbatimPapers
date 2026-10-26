@@ -13,6 +13,10 @@ import pytest
 
 DOMAIN_DIR = Path("domain")
 
+# Stdlib modules that reach outside the process; external tools belong behind
+# interfaces in infrastructure/ (ffmpeg moved out in #75)
+FORBIDDEN_STDLIB = {"subprocess"}
+
 
 def _module_root(module_name: str) -> str:
     return module_name.split(".")[0]
@@ -23,8 +27,8 @@ class TestDomainPurity:
     """Ensure hexagonal architecture boundaries are respected in domain/."""
 
     def test_domain_imports_only_stdlib_and_domain(self) -> None:
-        """Every import in domain/ must be stdlib or domain-internal."""
-        allowed_roots = set(sys.stdlib_module_names) | {"domain"}
+        """Every import in domain/ must be stdlib (minus process-spawning modules) or domain-internal."""
+        allowed_roots = (set(sys.stdlib_module_names) - FORBIDDEN_STDLIB) | {"domain"}
         violations: list[str] = []
 
         for py_file in sorted(DOMAIN_DIR.rglob("*.py")):

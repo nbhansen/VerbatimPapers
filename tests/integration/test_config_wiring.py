@@ -11,7 +11,6 @@ import yaml
 from application.composition import Services
 from application.config.system_config import SystemConfig
 from domain.audio.audio_engine import AudioEngine
-from domain.audio.timing_engine import TimingEngine
 from domain.document.document_engine import DocumentEngine
 from infrastructure.llm.gemini_llm_provider import GeminiLLMProvider
 from infrastructure.ocr.tesseract_ocr_provider import TesseractOCRProvider
@@ -87,17 +86,13 @@ class TestSettingsReachConsumers:
         assert engine.max_concurrent == 9
         assert engine.audio_target_chunk_size == 1234
 
-    def test_sentence_gap_reaches_shared_assembler(self, container: Services) -> None:
-        """audio.sentence_gap sets the gap for the one assembler both engines share."""
+    def test_sentence_gap_reaches_assembler(self, container: Services) -> None:
+        """audio.sentence_gap sets the gap the audio engine assembles with."""
         with patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()):
             engine = container.audio_engine
 
         assert isinstance(engine, AudioEngine)
-        assert container.audio_assembler.sentence_gap == 0.7
-        assert engine.assembler is container.audio_assembler
-        timing_engine = container.timing_engine
-        assert isinstance(timing_engine, TimingEngine)
-        assert timing_engine.assembler is container.audio_assembler
+        assert engine.assembler.sentence_gap == 0.7
 
     def test_ocr_settings(self, container: Services) -> None:
         """OCR language reaches Tesseract; DPI reaches page rendering."""

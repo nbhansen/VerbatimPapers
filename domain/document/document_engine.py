@@ -101,7 +101,6 @@ class DocumentEngine(IDocumentEngine):
         request: ProcessingRequest,
         audio_engine: IAudioEngine,
         text_pipeline: ITextPipeline,
-        enable_timing: bool = False,
         llm_chunk_size: int = 50000,
     ) -> Result[TimedAudioResult]:
         """Complete document processing workflow using Result[T] pattern.
@@ -126,8 +125,7 @@ class DocumentEngine(IDocumentEngine):
         if processed_chunks is None:
             return Result.failure(audio_generation_error("Text processing returned no chunks"))
 
-        # Generate audio using appropriate strategy
-        audio_result = self._generate_audio_output(processed_chunks, request.output_name, enable_timing, audio_engine)
+        audio_result = self._generate_audio_output(processed_chunks, request.output_name, audio_engine)
         if audio_result.is_failure:
             return Result.failure(audio_result.error)  # type: ignore[arg-type]
 
@@ -212,16 +210,11 @@ class DocumentEngine(IDocumentEngine):
             return Result.from_exception(e, ErrorCode.TEXT_CLEANING_FAILED, retryable=True)
 
     def _generate_audio_output(
-        self, processed_chunks: list[str], output_name: str, enable_timing: bool, audio_engine: IAudioEngine
+        self, processed_chunks: list[str], output_name: str, audio_engine: IAudioEngine
     ) -> Result[TimedAudioResult]:
-        """Generate audio using appropriate strategy based on timing requirements."""
+        """Generate the audio and its timeline."""
         try:
-            if enable_timing:
-                logger.debug("Using timing-aware audio generation")
-                audio_result = audio_engine.generate_with_timing(processed_chunks, output_name)
-            else:
-                logger.debug("Using simple audio generation (no timing complexity)")
-                audio_result = audio_engine.generate_simple_audio(processed_chunks, output_name)
+            audio_result = audio_engine.generate(processed_chunks, output_name)
 
             logger.debug("audio_result=%s", audio_result)
 

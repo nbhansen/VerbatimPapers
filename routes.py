@@ -45,7 +45,6 @@ def background_process_document(
     request_form: dict[str, str],
     saved_file_path: str,
     original_filename: str,
-    enable_timing: bool,
     services: Services,
     app: Flask,
 ) -> None:
@@ -56,7 +55,6 @@ def background_process_document(
         request_form: Form data as dict
         saved_file_path: Path where the uploaded file was saved
         original_filename: Original filename from upload
-        enable_timing: Whether to enable timing data
         services: The app's services
         app: Flask app instance
     """
@@ -70,7 +68,6 @@ def background_process_document(
                 request_form=request_form,
                 saved_file_path=saved_file_path,
                 original_filename=original_filename,
-                enable_timing=enable_timing,
             )
 
         except Exception as e:
@@ -122,7 +119,7 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/")
     def index() -> str:
-        return render_template("index.html", tts_engine=get_app_config().tts.engine.value)
+        return render_template("index.html")
 
     @app.route("/favicon.ico")
     def favicon() -> tuple[str, int]:
@@ -252,11 +249,7 @@ def register_routes(app: Flask) -> None:
         # Page range travels through result_data so the result page reflects the selection
         page_range = result_data.get("page_range") or PageRange(start_page=None, end_page=None)
 
-        # Check if this was a timing-enabled operation
-        enable_timing = progress.stage in ["complete"] and audio_result.timing_data is not None
-
-        # Render the result using the existing function
-        return render_upload_result(audio_result, original_filename, base_filename, page_range, enable_timing)
+        return render_upload_result(audio_result, original_filename, base_filename, page_range)
 
     @app.route("/get_pdf_info", methods=["POST"])
     def get_pdf_info() -> Response | tuple[Response, int]:
@@ -312,12 +305,9 @@ def register_routes(app: Flask) -> None:
 
         return file, None
 
-    def _handle_upload(enable_timing: bool) -> str | tuple[str, int]:
-        """Shared upload handler for both regular and timing-enabled uploads.
-
-        Args:
-            enable_timing: Whether to enable timing data for read-along functionality.
-        """
+    @app.route("/upload", methods=["POST"])
+    def upload_file() -> str | tuple[str, int]:
+        """Queue a conversion; every conversion produces audio plus a read-along timeline."""
         file, error = _validate_upload_request()
         if error or file is None:
             return error_page(error or "No file provided.", 400)
@@ -333,10 +323,7 @@ def register_routes(app: Flask) -> None:
         operation_id = str(uuid.uuid4())
 
         # Initialize progress tracking
-        timing_suffix = " with timing data" if enable_timing else ""
-        get_progress_store().update(
-            operation_id, "starting", 0, f"Upload received, starting processing{timing_suffix}..."
-        )
+        get_progress_store().update(operation_id, "starting", 0, "Upload received, starting processing...")
 
         # Save file first before passing to thread (FileStorage closes after request)
         config = get_app_config()
@@ -346,7 +333,7 @@ def register_routes(app: Flask) -> None:
         original_filename = secure_filename(file.filename) or "upload.pdf"
         saved_path = Path(config.files.upload_folder) / f"{operation_id}_{original_filename}"
         file.save(str(saved_path))
-        logger.info("Upload received: %s (timing=%s, op=%s)", original_filename, enable_timing, operation_id[:8])
+        logger.info("Upload received: %s (op=%s)", original_filename, operation_id[:8])
         logger.debug("Saved upload to: %s", saved_path)
 
         # Convert form data to dict (Flask objects don't work in threads)
@@ -360,7 +347,6 @@ def register_routes(app: Flask) -> None:
             form_data,
             str(saved_path),
             original_filename,
-            enable_timing,
             services,
             current_app._get_current_object(),  # type: ignore[attr-defined]
         )
@@ -370,23 +356,7 @@ def register_routes(app: Flask) -> None:
         logger.info("Background processing queued: op=%s", operation_id[:8])
 
         # Return processing page immediately
-        return render_template("processing.html", operation_id=operation_id, enable_timing=enable_timing)
-
-    @app.route("/upload", methods=["POST"])
-    def upload_file() -> str | tuple[str, int]:
-        """Regular upload WITHOUT timing data."""
-        return _handle_upload(enable_timing=False)
-
-    @app.route("/upload-with-timing", methods=["POST"])
-    def upload_file_with_timing() -> str | tuple[str, int]:
-        """Upload WITH timing data for read-along functionality."""
-        config = get_app_config()
-        if config.tts.engine.value == "gemini":
-            return error_page(
-                "Read-along mode is not available with Gemini TTS. Please use regular upload or switch to Piper TTS.",
-                400,
-            )
-        return _handle_upload(enable_timing=True)
+        return render_template("processing.html", operation_id=operation_id)
 
     def _require_admin() -> tuple[Response, int] | None:
         """Gate /admin endpoints: 404 while disabled, 403 on missing/wrong token.
@@ -469,7 +439,6 @@ def render_upload_result(
     original_filename: str,
     base_filename_no_ext: str,
     page_range: PageRange,
-    enable_timing: bool = False,
 ) -> str:
     """Render the result template with appropriate parameters."""
     if result is None:
@@ -495,14 +464,8 @@ def render_upload_result(
         "file_count": len(result.audio_files),
     }
 
-    if enable_timing:
-        template_params.update(
-            {
-                "has_timing_data": True,
-                "base_filename": base_filename_no_ext,
-            }
-        )
-    else:
-        template_params.update({"has_timing_data": False})
+    # Results stored before every conversion carried timing have no read-along view
+    template_params["has_timing_data"] = result.timing_data is not None
+    template_params["base_filename"] = base_filename_no_ext
 
     return render_template("result.html", **template_params)

@@ -5,6 +5,7 @@ The Gemini API client is mocked; these tests cover request configuration,
 response parsing (including PCM-to-WAV conversion), and error handling.
 """
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
@@ -41,7 +42,6 @@ def custom_gemini_provider() -> GeminiTTSProvider:
         voice_name="Aria",
         min_request_interval=1.5,
         max_concurrent_requests=8,
-        requests_per_minute=60,
     )
 
 
@@ -59,7 +59,6 @@ class TestGeminiTTSProviderInitialization:
         # Default values
         assert provider.min_request_interval == 2.0
         assert provider.max_concurrent_requests == 4
-        assert provider.requests_per_minute == 30
 
     def test_init_with_custom_parameters(self, custom_gemini_provider: GeminiTTSProvider) -> None:
         """Should initialize with custom parameters."""
@@ -70,7 +69,6 @@ class TestGeminiTTSProviderInitialization:
         assert provider.voice_name == "Aria"
         assert provider.min_request_interval == 1.5
         assert provider.max_concurrent_requests == 8
-        assert provider.requests_per_minute == 60
 
     def test_init_client_failure_is_deferred(self) -> None:
         """Client construction errors should be stored, not raised."""
@@ -204,6 +202,58 @@ class TestGeminiTTSProviderSyncGeneration:
         assert result.is_failure
         assert result.error is not None
         assert "quota exceeded" in str(result.error.details)
+
+
+class TestGeminiRequestPacing:
+    """The adapter, not the audio engine, enforces Gemini's request limits."""
+
+    def test_request_starts_are_spaced_by_interval(self) -> None:
+        """Each claimed start is one interval after the previous one."""
+        provider = GeminiTTSProvider(model_name="m", api_key="k", min_request_interval=1.0)
+
+        with patch("infrastructure.tts.gemini_tts_provider.time.monotonic", return_value=100.0):
+            delays = [provider._claim_start_delay() for _ in range(3)]
+
+        assert delays == [0.0, 1.0, 2.0]
+
+    @pytest.mark.asyncio
+    async def test_in_flight_requests_are_capped(self) -> None:
+        """No more than max_concurrent_requests calls run at once, however many are queued."""
+        provider = GeminiTTSProvider(model_name="m", api_key="k", min_request_interval=0.0, max_concurrent_requests=2)
+        in_flight = 0
+        peak = 0
+
+        async def fake_generate(**_kwargs: object) -> SimpleNamespace:
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.02)
+            in_flight -= 1
+            return make_audio_response(b"\x00\x01" * 10, mime_type="audio/pcm;rate=24000")
+
+        provider.client = Mock()
+        provider.client.aio.models.generate_content = fake_generate
+
+        results = await asyncio.gather(*(provider.synthesize_async(f"Text {i}.") for i in range(6)))
+
+        assert all(r.is_success for r in results)
+        assert peak == 2
+
+    @pytest.mark.asyncio
+    async def test_slot_is_released_after_api_error(self) -> None:
+        """A failed request frees its slot for the next one."""
+        provider = GeminiTTSProvider(model_name="m", api_key="k", min_request_interval=0.0, max_concurrent_requests=1)
+
+        async def failing_generate(**_kwargs: object) -> SimpleNamespace:
+            raise RuntimeError("quota exceeded")
+
+        provider.client = Mock()
+        provider.client.aio.models.generate_content = failing_generate
+
+        first = await asyncio.wait_for(provider.synthesize_async("One."), timeout=1)
+        second = await asyncio.wait_for(provider.synthesize_async("Two."), timeout=1)
+
+        assert first.is_failure and second.is_failure
 
 
 class TestGeminiTTSProviderAsyncGeneration:
@@ -382,9 +432,7 @@ class TestGeminiTTSProviderConfiguration:
             voice_name="Kore",
             min_request_interval=0.5,
             max_concurrent_requests=10,
-            requests_per_minute=120,
         )
 
         assert provider.min_request_interval == 0.5
         assert provider.max_concurrent_requests == 10
-        assert provider.requests_per_minute == 120

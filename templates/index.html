@@ -40,16 +40,6 @@
             <div class="error-message" id="page_error"></div>
 
             <div class="checkbox-group">
-                <input type="checkbox" id="enable_read_along" name="enable_read_along" {{ 'disabled' if tts_engine == 'gemini' else '' }}>
-                <label for="enable_read_along" class="checkbox-label">
-                    <i class="fas fa-book-reader"></i> Enable read-along mode
-                    {% if tts_engine == 'gemini' %}
-                    <span style="opacity: 0.7;">(Available with Piper TTS only)</span>
-                    {% endif %}
-                </label>
-            </div>
-
-            <div class="checkbox-group">
                 <input type="checkbox" id="enable_plain_english" name="enable_plain_english">
                 <label for="enable_plain_english" class="checkbox-label">
                     <i class="fas fa-language"></i> Convert to plain English
@@ -62,7 +52,7 @@
                 • Leave page range unchecked to process the entire document<br>
                 • For academic papers: Consider starting from page 2-3 to skip title pages<br>
                 • End before references section for cleaner audio content<br>
-                • <strong>Read-along mode:</strong> Generates synchronized text highlighting during audio playback<br>
+                • <strong>Read-along mode:</strong> Every conversion can be played with synchronized text highlighting<br>
                 • <strong>Plain English conversion:</strong> Transforms academic language into everyday words while preserving meaning
             </div>
         </div>
@@ -87,7 +77,6 @@
             this.processingIndicator = document.getElementById('processingIndicator');
             this.pageRangeCheckbox = document.getElementById('use_page_range');
             this.pageRangeInputs = document.getElementById('page_range_inputs');
-            this.readAlongCheckbox = document.getElementById('enable_read_along');
             this.errorDiv = document.getElementById('page_error');
             this.fileInput = document.getElementById('pdf_file');
 
@@ -98,7 +87,6 @@
         init() {
             // Event listeners
             this.pageRangeCheckbox.addEventListener('change', () => this.togglePageRange());
-            this.readAlongCheckbox.addEventListener('change', () => this.updateFormAction());
             this.fileInput.addEventListener('change', () => this.handleFileSelection());
 
             // Page range validation
@@ -107,9 +95,6 @@
 
             // Form submission
             this.form.addEventListener('submit', (e) => this.handleSubmit(e));
-
-            // Initialize form action
-            this.updateFormAction();
         }
 
         togglePageRange() {
@@ -120,16 +105,6 @@
                 document.getElementById('start_page').value = '';
                 document.getElementById('end_page').value = '';
                 this.hideError();
-            }
-        }
-
-        updateFormAction() {
-            if (this.readAlongCheckbox.checked) {
-                this.form.action = '/upload-with-timing';
-                this.submitBtn.value = 'Convert with Read-Along';
-            } else {
-                this.form.action = '/upload';
-                this.submitBtn.value = 'Convert to Audio';
             }
         }
 
@@ -204,7 +179,6 @@
                 this.isSubmitted = false;
                 this.submitBtn.disabled = false;
                 this.processingIndicator.style.display = 'none';
-                this.updateFormAction(); // Reset button text
             });
         }
     }

@@ -1,9 +1,13 @@
 # infrastructure/tts/gemini_tts_provider.py
 """Gemini TTS Provider implementation using Google Gen AI SDK."""
 
-from collections.abc import Sequence
+import asyncio
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 import io
 import logging
+import threading
+import time
 import wave
 
 from google import genai
@@ -34,7 +38,6 @@ class GeminiTTSProvider(ITTSEngine):
         style_prompt: str | None = None,
         min_request_interval: float = 2.0,
         max_concurrent_requests: int = 4,
-        requests_per_minute: int = 30,
     ):
         """Initialize Gemini TTS Provider.
 
@@ -44,17 +47,21 @@ class GeminiTTSProvider(ITTSEngine):
             voice_name: Voice to use (e.g. "Kore", "Puck", "Charon", "Fenrir", "Aoede")
             style_prompt: Delivery directive prefixed to the text. None uses
                 DEFAULT_STYLE_PROMPT; pass an empty string to send the text bare.
-            min_request_interval: Minimum seconds between API requests
-            max_concurrent_requests: Maximum number of concurrent API requests
-            requests_per_minute: Rate limit for API requests per minute
+            min_request_interval: Minimum seconds between the starts of API requests
+            max_concurrent_requests: Maximum number of API requests in flight
+
+        Both limits are enforced across every caller of this instance, including
+        conversions running concurrently on separate threads and event loops.
         """
         self.model_name = model_name
         self.api_key = api_key
         self.voice_name = voice_name
         self.style_prompt = DEFAULT_STYLE_PROMPT if style_prompt is None else style_prompt
         self.min_request_interval = min_request_interval
-        self.max_concurrent_requests = max_concurrent_requests
-        self.requests_per_minute = requests_per_minute
+        self.max_concurrent_requests = max(1, max_concurrent_requests)
+        self._request_slots = threading.BoundedSemaphore(self.max_concurrent_requests)
+        self._pace_lock = threading.Lock()
+        self._next_request_at = 0.0
         self._initialization_error: str | None = None  # Deferred error handling
 
         self.client: genai.Client | None = None
@@ -64,6 +71,34 @@ class GeminiTTSProvider(ITTSEngine):
         except Exception as e:
             self._initialization_error = f"Failed to initialize Gemini Client: {e}"
             logger.error(self._initialization_error)
+
+    def _claim_start_delay(self) -> float:
+        """Reserve the next request start time and return how long to wait for it."""
+        with self._pace_lock:
+            now = time.monotonic()
+            start = max(now, self._next_request_at)
+            self._next_request_at = start + self.min_request_interval
+            return start - now
+
+    @contextmanager
+    def _request_slot(self) -> Iterator[None]:
+        """Hold one in-flight request slot, paced by min_request_interval (blocking)."""
+        with self._request_slots:
+            time.sleep(self._claim_start_delay())
+            yield
+
+    async def _acquire_request_slot_async(self) -> None:
+        """Async counterpart of _request_slot's acquire; caller releases _request_slots.
+
+        Polls rather than blocking a thread, so a cancelled task never leaves a slot held.
+        """
+        while not self._request_slots.acquire(blocking=False):  # noqa: ASYNC110 - thread semaphore shared across loops
+            await asyncio.sleep(0.05)
+        try:
+            await asyncio.sleep(self._claim_start_delay())
+        except BaseException:
+            self._request_slots.release()
+            raise
 
     def _build_prompt(self, text: str) -> str:
         """Prefix the delivery directive to the text, if one is configured."""
@@ -102,7 +137,8 @@ class GeminiTTSProvider(ITTSEngine):
 
             prompt = self._build_prompt(text)
 
-            response = self.client.models.generate_content(model=self.model_name, contents=prompt, config=config)
+            with self._request_slot():
+                response = self.client.models.generate_content(model=self.model_name, contents=prompt, config=config)
             logger.debug("Gemini API call successful, extracting audio from response")
 
             return self._segments_from_response(text, response)
@@ -121,6 +157,9 @@ class GeminiTTSProvider(ITTSEngine):
         if not self.client:
             return Result.failure(tts_engine_error("Gemini Client not initialized"))
 
+        if not text.strip():
+            return Result.failure(tts_engine_error("Empty text provided"))
+
         try:
             config = types.GenerateContentConfig(
                 response_modalities=["AUDIO"],
@@ -133,10 +172,13 @@ class GeminiTTSProvider(ITTSEngine):
 
             prompt = self._build_prompt(text)
 
-            # Use async client
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name, contents=prompt, config=config
-            )
+            await self._acquire_request_slot_async()
+            try:
+                response = await self.client.aio.models.generate_content(
+                    model=self.model_name, contents=prompt, config=config
+                )
+            finally:
+                self._request_slots.release()
 
             return self._segments_from_response(text, response)
 

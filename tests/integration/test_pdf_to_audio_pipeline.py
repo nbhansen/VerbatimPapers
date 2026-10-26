@@ -130,8 +130,7 @@ def pipeline_config(pipeline_test_dirs: tuple[str, str]) -> SystemConfig:
             audio_target_chunk_size=1000,
         ),
         performance=PerformanceConfig(
-            enable_async_audio=False,  # Sync for predictable testing
-            audio_concurrent_chunks=1,
+            audio_concurrent_chunks=1,  # One chunk at a time for predictable testing
         ),
         flask=FlaskConfig(),
         ocr=OCRConfig(),

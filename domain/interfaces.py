@@ -126,6 +126,14 @@ class ITTSEngine(ABC):
         """
 
 
+class IAudioEncoder(ABC):
+    """Interface for encoding assembled audio into a distributable format."""
+
+    @abstractmethod
+    def encode_mp3(self, wav: bytes, dest_path: str) -> Result[str]:
+        """Encode WAV bytes to an MP3 at dest_path, returning that path."""
+
+
 # --- Domain Engine Interfaces ---
 
 
@@ -150,7 +158,6 @@ class IDocumentEngine(ABC):
         request: ProcessingRequest,
         audio_engine: "IAudioEngine",
         text_pipeline: "ITextPipeline",
-        enable_timing: bool = False,
         llm_chunk_size: int = 50000,
     ) -> Result[TimedAudioResult]:
         """Complete document processing workflow."""
@@ -160,12 +167,8 @@ class IAudioEngine(ABC):
     """Interface for audio operations using Result[T] pattern."""
 
     @abstractmethod
-    def generate_with_timing(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
-        """Generate audio with timing data from text chunks."""
-
-    @abstractmethod
-    def generate_simple_audio(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
-        """Generate audio without timing complexity - for regular uploads."""
+    def generate(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
+        """Synthesize text chunks into one MP3 and the timeline that read-along plays against."""
 
 
 class ITextPipeline(ABC):

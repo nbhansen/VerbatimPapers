@@ -43,7 +43,6 @@
 {% block scripts %}
 <script>
     const operationId = "{{ operation_id }}";
-    const enableTiming = {{ 'true' if enable_timing else 'false' }};
 
     // DOM elements
     const statusMessage = document.getElementById('status-message');
