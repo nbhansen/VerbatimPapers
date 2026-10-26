@@ -24,18 +24,6 @@ class IFileManager(ABC):
     """Interface for managing file operations and paths."""
 
     @abstractmethod
-    def save_temp_file(self, content: bytes, suffix: str = ".tmp") -> str:
-        """Saves content to a temporary file and returns its path."""
-
-    @abstractmethod
-    def save_output_file(self, content: bytes, filename: str) -> str:
-        """Saves content to a final output file and returns its path."""
-
-    @abstractmethod
-    def delete_file(self, filepath: str) -> None:
-        """Deletes a file at the given path."""
-
-    @abstractmethod
     def get_output_dir(self) -> str:
         """Returns the path to the output directory."""
 

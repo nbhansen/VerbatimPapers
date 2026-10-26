@@ -5,9 +5,7 @@ Handles file I/O, directory management, and temporary file creation.
 
 import logging
 import math
-import os
 from pathlib import Path
-import tempfile
 import time
 
 from domain.errors import Result, configuration_error
@@ -30,32 +28,6 @@ class FileManager(IFileManager):
     def get_output_dir(self) -> str:
         """Returns the absolute path to the output directory."""
         return self.output_folder
-
-    def get_upload_dir(self) -> str:
-        """Returns the absolute path to the upload directory."""
-        return self.upload_folder
-
-    def save_temp_file(self, content: bytes, suffix: str = ".tmp") -> str:
-        """Saves content to a temporary file and returns its full path."""
-        fd, path = tempfile.mkstemp(suffix=suffix, dir=self.output_folder)
-        with os.fdopen(fd, "wb") as tmp:
-            tmp.write(content)
-        logger.debug("Saved temp file: %s (%d bytes, suffix=%s)", path, len(content), suffix)
-        return path
-
-    def save_output_file(self, content: bytes, filename: str) -> str:
-        """Saves content to a final output file and returns its full path."""
-        if not filename:
-            raise ValueError("Filename cannot be empty")
-
-        # Sanitize filename to prevent directory traversal
-        base_filename = Path(filename).name
-        output_path = Path(self.output_folder) / base_filename
-
-        output_path.write_bytes(content)
-        logger.debug("Saved output file: %s (%d bytes)", base_filename, len(content))
-
-        return str(output_path)
 
     def cleanup_old_files(self, max_age_hours: float) -> Result[CleanupStats]:
         """Deletes files in the output and upload directories with mtime older than max_age_hours.
@@ -91,17 +63,3 @@ class FileManager(IFileManager):
                 errors.append(f"Failed to remove {filepath.name}: {e!s}")
 
         return Result.success(CleanupStats(files_removed=files_removed, bytes_freed=bytes_freed, errors=tuple(errors)))
-
-    def delete_file(self, filepath: str) -> None:
-        """Deletes a file if it exists."""
-        # Security check: ensure path is within managed directories
-        abs_path = Path(filepath).resolve()
-        if not (abs_path.is_relative_to(self.output_folder) or abs_path.is_relative_to(self.upload_folder)):
-            logger.error("Attempted file deletion outside managed directories: %s", filepath)
-            raise ValueError(f"Cannot delete file outside managed directories: {filepath}")
-
-        if abs_path.exists():
-            abs_path.unlink()
-            logger.debug("Deleted file: %s", filepath)
-        else:
-            logger.warning("File not found for deletion: %s", filepath)

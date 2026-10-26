@@ -4,7 +4,7 @@
 import io
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from domain.errors import ErrorCode
 from infrastructure.ocr.tesseract_ocr_provider import TesseractOCRProvider
@@ -62,3 +62,16 @@ class TestTesseractOCRProvider:
         result = TesseractOCRProvider().perform_ocr(b"not an image")
 
         assert result.is_failure
+
+
+def test_real_tesseract_reads_rendered_text(requires_tesseract: None) -> None:
+    """Real Tesseract reads text from PNG bytes rendered in memory."""
+    image = Image.new("L", (600, 120), color=255)
+    ImageDraw.Draw(image).text((20, 30), "HELLO WORLD", fill=0, font=ImageFont.load_default(size=48))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+
+    result = TesseractOCRProvider().perform_ocr(buffer.getvalue())
+
+    assert result.is_success, result.error
+    assert "HELLO" in (result.value or "").upper()

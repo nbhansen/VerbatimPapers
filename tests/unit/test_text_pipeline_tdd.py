@@ -4,6 +4,7 @@
 Tests pure text processing logic without external dependencies.
 """
 
+from collections.abc import Callable
 from unittest.mock import Mock
 
 from domain.errors import Result
@@ -356,3 +357,93 @@ class TestLargeTextRetry:
         assert len(pieces) > 1
         assert all(len(piece) <= 15000 and piece.endswith(".") for piece in pieces)
         assert " ".join(pieces) == raw_text
+
+
+class TestPlainEnglish:
+    """The "Convert to plain English" option rewrites the cleaned text, never losing it."""
+
+    @staticmethod
+    def _llm(reply: Callable[[str], Result[str]]) -> Mock:
+        llm = Mock()
+        llm.generate_content.side_effect = reply
+        return llm
+
+    @staticmethod
+    def _text_of(prompt: str) -> str:
+        return prompt.split("Text to convert:\n", 1)[1]
+
+    def test_rewrite_replaces_the_text(self):
+        """With cleaning off, the basic-cleaned text is sent for rewriting and the rewrite is used."""
+        llm = self._llm(lambda prompt: Result.success("Using these methods helps people take part."))
+
+        result = TextPipeline(llm_provider=llm, enable_cleaning=False, enable_plain_english=True).clean_text(
+            "The   utilization of these mechanisms facilitates participation."
+        )
+
+        (prompt,) = [call.args[0] for call in llm.generate_content.call_args_list]
+        assert prompt.startswith("Rewrite the following academic text using simpler language.")
+        assert self._text_of(prompt) == "The utilization of these mechanisms facilitates participation."
+        assert result.value == "Using these methods helps people take part."
+
+    def test_rewrite_follows_llm_cleaning(self):
+        """Rewriting starts from the cleaned text, not the raw extraction."""
+        replies = iter([Result.success("Cleaned academic sentence here."), Result.success("Simple sentence here.")])
+        llm = self._llm(lambda prompt: next(replies))
+
+        result = TextPipeline(llm_provider=llm, enable_cleaning=True, enable_plain_english=True).clean_text(
+            "Raw academic sentence [1] here."
+        )
+
+        prompts = [call.args[0] for call in llm.generate_content.call_args_list]
+        assert self._text_of(prompts[1]) == "Cleaned academic sentence here."
+        assert result.value == "Simple sentence here."
+
+    def test_off_by_default(self):
+        """Without the option, no rewrite prompt is ever sent."""
+        llm = self._llm(lambda prompt: Result.success("Cleaned text that is long enough."))
+
+        TextPipeline(llm_provider=llm, enable_cleaning=True).clean_text("Raw text that is long enough.")
+
+        assert not any("Rewrite the following" in call.args[0] for call in llm.generate_content.call_args_list)
+
+    def test_failed_rewrite_keeps_the_text(self):
+        """An LLM error falls back to the unrewritten text rather than failing the conversion."""
+        llm = self._llm(lambda prompt: Result.failure(Mock()))
+
+        result = TextPipeline(llm_provider=llm, enable_cleaning=False, enable_plain_english=True).clean_text(
+            "Original academic text."
+        )
+
+        assert result.value == "Original academic text."
+
+    def test_summary_instead_of_rewrite_is_rejected(self):
+        """A reply far shorter than the input is a summary, which would drop content; the original is kept."""
+        original = "This sentence carries detail that must survive the rewrite. " * 10
+        llm = self._llm(lambda prompt: Result.success("Short summary."))
+
+        result = TextPipeline(llm_provider=llm, enable_cleaning=False, enable_plain_english=True).clean_text(original)
+
+        assert result.value == original.strip()
+
+    def test_long_text_is_rewritten_in_order_and_failed_pieces_kept(self):
+        """Over the size limit the text is rewritten piecewise; a failed piece stays as it was."""
+        sentences = [f"Sentence {i} is written in a needlessly elaborate academic register." for i in range(700)]
+        original = " ".join(sentences)
+        calls: list[str] = []
+
+        def reply(prompt: str) -> Result[str]:
+            text = self._text_of(prompt)
+            calls.append(text)
+            if len(calls) == 2:
+                return Result.failure(Mock())
+            return Result.success(f"<simple {len(calls)}>")
+
+        result = TextPipeline(
+            llm_provider=self._llm(reply), enable_cleaning=False, enable_plain_english=True
+        ).clean_text(original)
+
+        assert len(calls) > 2
+        assert all(len(piece) <= 15000 for piece in calls)
+        assert " ".join(calls) == original
+        expected = [calls[1] if i == 1 else f"<simple {i + 1}>" for i in range(len(calls))]
+        assert result.value == " ".join(expected)

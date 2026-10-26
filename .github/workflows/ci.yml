@@ -26,6 +26,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # The real-conversion integration test speaks with this voice
+      - name: Cache Piper voice model
+        uses: actions/cache@v4
+        with:
+          path: piper_models
+          key: piper-voice-en_US-lessac-medium
+
       - name: Lint with ruff
         run: uv run ruff check .
 
