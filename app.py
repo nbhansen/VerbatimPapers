@@ -6,19 +6,13 @@ pattern with dependency injection through ApplicationContext.
 
 import atexit
 import logging
-import os
 import signal
 import sys
 
 from flask import Flask
 
-from app_factory import create_app
+from app_factory import create_app, is_serving_process
 from routes import register_routes
-
-
-def is_flask_reloader() -> bool:
-    """Check if we're in Flask debug reloader process."""
-    return os.environ.get("WERKZEUG_RUN_MAIN") != "true"
 
 
 def create_application() -> Flask:
@@ -30,7 +24,7 @@ def create_application() -> Flask:
     logger = logging.getLogger(__name__)
 
     # Start cleanup scheduler if available
-    if context.cleanup_scheduler and not is_flask_reloader():
+    if context.cleanup_scheduler and is_serving_process(context.config.flask.debug):
         logger.info("Starting file cleanup scheduler...")
         context.cleanup_scheduler.start()
 
@@ -40,7 +34,7 @@ def create_application() -> Flask:
     # Setup shutdown handlers
     def shutdown_handler() -> None:
         """Clean shutdown handler."""
-        if context.cleanup_scheduler and not is_flask_reloader():
+        if context.cleanup_scheduler and is_serving_process(context.config.flask.debug):
             logger.info("Shutting down file cleanup scheduler...")
             context.cleanup_scheduler.stop()
 
@@ -69,7 +63,7 @@ if __name__ == "__main__":
     logging.getLogger("werkzeug").setLevel(logging.INFO)
 
     # Only log startup info once
-    if not is_flask_reloader():
+    if is_serving_process(context.config.flask.debug):
         logger.info("Starting Flask development server...")
         context.config.log_summary(logger)
 

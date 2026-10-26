@@ -312,9 +312,6 @@ class SystemConfig:
             auto_cleanup_interval_hours=cls._parse_float_value(
                 get_config("files.cleanup.auto_cleanup_interval_hours", 6.0), 6.0, 0.1, 24.0
             ),
-            max_disk_usage_mb=cls._parse_int_value(
-                get_config("files.cleanup.max_disk_usage_mb", 1000), 1000, 10, 10000
-            ),
         )
 
     @classmethod
@@ -431,8 +428,6 @@ class SystemConfig:
                 raise ValueError("MAX_FILE_AGE_HOURS must be positive when file cleanup is enabled")
             if self.cleanup.auto_cleanup_interval_hours <= 0:
                 raise ValueError("AUTO_CLEANUP_INTERVAL_HOURS must be positive when file cleanup is enabled")
-            if self.cleanup.max_disk_usage_mb <= 0:
-                raise ValueError("MAX_DISK_USAGE_MB must be positive when file cleanup is enabled")
 
     @staticmethod
     def _get_secure_project_root() -> str:
@@ -578,7 +573,6 @@ class SystemConfig:
                 [
                     f"Max File Age: {self.cleanup.max_file_age_hours} hours",
                     f"Cleanup Interval: {self.cleanup.auto_cleanup_interval_hours} hours",
-                    f"Max Disk Usage: {self.cleanup.max_disk_usage_mb} MB",
                 ]
             )
 

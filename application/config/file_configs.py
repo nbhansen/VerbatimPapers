@@ -22,4 +22,3 @@ class FileCleanupConfig:
     enabled: bool = True
     max_file_age_hours: float = 24.0
     auto_cleanup_interval_hours: float = 6.0
-    max_disk_usage_mb: int = 1000

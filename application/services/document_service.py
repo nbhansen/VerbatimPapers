@@ -4,7 +4,6 @@ This service decouples the web layer from the core domain logic by providing
 a unified interface for processing documents into audio.
 """
 
-import contextlib
 import json
 import logging
 from pathlib import Path
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
 
 from application.services.error_formatting import clean_text_for_display, get_processing_stage_error
 from application.services.progress_store import ThreadSafeProgressStore
-from domain.interfaces import IAudioEngine, IDocumentEngine, IFileManager, ITextPipeline
+from domain.interfaces import IAudioEngine, IDocumentEngine, ITextPipeline
 from domain.models import ProcessingRequest
 from utils import parse_page_range_from_form, parse_plain_english_from_form
 
@@ -194,12 +193,6 @@ class DocumentProcessingService:
                 json.dump(timing_json, f, indent=2, ensure_ascii=False)
 
             logger.info("Saved timing data: %s", timing_filename)
-
-            # Register with file manager for cleanup if needed
-            with contextlib.suppress(Exception):
-                file_manager = self.container.get(IFileManager)
-                if hasattr(file_manager, "schedule_cleanup"):
-                    file_manager.schedule_cleanup(timing_filename, 2.0)
         except Exception as e:
             logger.error("Failed to save timing data: %s", e)
 

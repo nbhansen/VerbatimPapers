@@ -1,11 +1,11 @@
-"""Background service for managing cleanup of old files.
+"""Background service that periodically removes old files.
 
-Runs in a separate thread to periodically remove expired files.
+Runs in a separate thread and delegates the actual sweep to
+IFileManager.cleanup_old_files, which deletes by modification time.
 """
 
 import logging
 import threading
-import time
 
 from domain.interfaces import IFileManager
 
@@ -13,35 +13,22 @@ logger = logging.getLogger(__name__)
 
 
 class FileCleanupScheduler:
-    """Background thread service for periodic cleanup of expired files.
+    """Background thread that sweeps files older than a maximum age on a fixed interval."""
 
-    Monitors registered files and removes them when they exceed max age.
-    """
-
-    def __init__(self, file_manager: IFileManager, max_file_age_seconds: int, check_interval_seconds: int):
+    def __init__(self, file_manager: IFileManager, max_file_age_hours: float, interval_seconds: float):
         """Initialize the cleanup scheduler (does not start automatically).
 
         Args:
             file_manager: IFileManager implementation for file operations
-            max_file_age_seconds: Maximum file age before deletion
-            check_interval_seconds: How often to check for expired files
+            max_file_age_hours: Files older than this are deleted
+            interval_seconds: How often to run a sweep
         """
         self.file_manager = file_manager
-        self.max_file_age_seconds = max_file_age_seconds
-        self.check_interval_seconds = check_interval_seconds
-
-        # Thread-safe file tracking
-        self._lock = threading.Lock()
-        self._scheduled_files: dict[str, float] = {}  # {filepath: creation_timestamp}
+        self.max_file_age_hours = max_file_age_hours
+        self.interval_seconds = interval_seconds
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
-
-    def schedule(self, filepath: str) -> None:
-        """Schedule a file for cleanup monitoring."""
-        logger.debug("Scheduling file for cleanup: %s", filepath)
-        with self._lock:
-            self._scheduled_files[filepath] = time.time()
 
     def start(self) -> None:
         """Start the background cleanup thread."""
@@ -49,12 +36,12 @@ class FileCleanupScheduler:
             return
 
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._cleanup_job, daemon=True)
+        self._thread = threading.Thread(target=self._cleanup_job, daemon=True, name="verbatimpapers-cleanup")
         self._thread.start()
         logger.info(
-            "File cleanup scheduler started (interval=%ds, max_age=%ds)",
-            self.check_interval_seconds,
-            self.max_file_age_seconds,
+            "File cleanup scheduler started (interval=%.0fs, max_age=%.1fh)",
+            self.interval_seconds,
+            self.max_file_age_hours,
         )
 
     def stop(self) -> None:
@@ -64,53 +51,28 @@ class FileCleanupScheduler:
             self._stop_event.set()
             self._thread.join(timeout=5)
 
-    def run_manual_cleanup(self) -> dict[str, int]:
-        """Run one cleanup pass immediately and report how many tracked files were deleted."""
-        logger.info("Manual cleanup triggered")
-        return {"files_deleted": self._process_expired_files()}
+    def run_once(self) -> None:
+        """Run a single sweep, logging the outcome. Never raises."""
+        try:
+            result = self.file_manager.cleanup_old_files(self.max_file_age_hours)
+        except Exception:
+            logger.exception("Error during cleanup cycle")
+            return
+
+        if result.is_failure or result.value is None:
+            logger.error("Cleanup cycle failed: %s", result.error)
+            return
+
+        stats = result.value
+        for error in stats.errors:
+            logger.warning("Cleanup: %s", error)
+        if stats.files_removed:
+            logger.info("Cleanup removed %d files (%d bytes)", stats.files_removed, stats.bytes_freed)
+        else:
+            logger.debug("Cleanup cycle: nothing to remove")
 
     def _cleanup_job(self) -> None:
-        """Main cleanup loop running in background thread."""
+        """Main loop: sweep immediately, then once per interval until stopped."""
         while not self._stop_event.is_set():
-            try:
-                logger.debug("Cleanup cycle: checking for expired files")
-                self._process_expired_files()
-            except Exception:
-                logger.exception("Error during cleanup cycle")
-
-            # Wait for next interval, checking stop event
-            self._stop_event.wait(self.check_interval_seconds)
-
-    def _process_expired_files(self) -> int:
-        """Process and remove expired files, returning the number deleted."""
-        current_time = time.time()
-
-        # Collect expired files under lock (fast), then delete outside lock (slow I/O)
-        with self._lock:
-            logger.debug("Checking %d tracked files for expiration", len(self._scheduled_files))
-            expired = {
-                filepath: creation_time
-                for filepath, creation_time in self._scheduled_files.items()
-                if (current_time - creation_time) > self.max_file_age_seconds
-            }
-
-        if not expired:
-            return 0
-
-        # Delete files outside lock so schedule() isn't blocked by I/O
-        successfully_deleted = []
-        for filepath, creation_time in expired.items():
-            try:
-                self.file_manager.delete_file(filepath)
-                logger.info("Deleted expired file: %s (age=%.0fs)", filepath, current_time - creation_time)
-                successfully_deleted.append(filepath)
-            except Exception:
-                logger.exception("Failed to delete expired file: %s (will retry next cycle)", filepath)
-
-        # Remove only successfully deleted files from tracking
-        if successfully_deleted:
-            with self._lock:
-                for filepath in successfully_deleted:
-                    self._scheduled_files.pop(filepath, None)
-            logger.debug("Cleanup cycle complete: %d files deleted", len(successfully_deleted))
-        return len(successfully_deleted)
+            self.run_once()
+            self._stop_event.wait(self.interval_seconds)

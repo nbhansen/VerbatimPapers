@@ -58,7 +58,10 @@ class FileManager(IFileManager):
         return str(output_path)
 
     def cleanup_old_files(self, max_age_hours: float) -> Result[CleanupStats]:
-        """Deletes files in the output directory with mtime older than max_age_hours.
+        """Deletes files in the output and upload directories with mtime older than max_age_hours.
+
+        Uploads are normally removed when processing finishes; sweeping them too
+        catches the ones a crash mid-processing leaves behind.
 
         Rejects non-positive and non-finite ages: a negative age would put the
         cutoff in the future and delete every file, and NaN comparisons would
@@ -74,7 +77,8 @@ class FileManager(IFileManager):
         bytes_freed = 0
         errors: list[str] = []
 
-        for filepath in Path(self.output_folder).iterdir():
+        candidates = [path for folder in (self.output_folder, self.upload_folder) for path in Path(folder).iterdir()]
+        for filepath in candidates:
             try:
                 stat = filepath.stat()
                 if not filepath.is_file() or stat.st_mtime >= cutoff_time:
