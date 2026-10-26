@@ -53,9 +53,8 @@ class GeminiLLMProvider(ILLMProvider):
         # Prompts are document text, so only their length is ever logged
         logger.debug("LLM call: model=%s, %d-char prompt", self.model_name, len(prompt))
 
+        start_time = time.time()
         try:
-            start_time = time.time()
-
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
@@ -64,44 +63,23 @@ class GeminiLLMProvider(ILLMProvider):
                     temperature=0.3,
                 ),
             )
-
-            api_time = time.time() - start_time
-            logger.debug("LLM call returned in %.2fs", api_time)
-
-            # Inspect response structure for debugging
-            if response:
-                try:
-                    # Check if response has candidates
-                    if hasattr(response, "candidates") and response.candidates:
-                        candidate = response.candidates[0]
-                        finish_reason = getattr(candidate, "finish_reason", "UNKNOWN")
-                        logger.debug("Response finish_reason: %s", finish_reason)
-
-                        # Try to get text content
-                        if (
-                            hasattr(candidate, "content")
-                            and candidate.content is not None
-                            and hasattr(candidate.content, "parts")
-                        ):
-                            parts = candidate.content.parts
-                            if parts and hasattr(parts[0], "text"):
-                                text_content = parts[0].text
-                                if text_content:
-                                    logger.debug("LLM Response: %s chars returned", len(text_content))
-                                    return Result.success(text_content)
-                except Exception as e:
-                    logger.warning("Error inspecting response structure: %s", e)
-
-            # Try the simple .text accessor as fallback
-            if response and hasattr(response, "text") and response.text:
-                logger.debug("LLM Response: %s chars returned (via .text accessor)", len(response.text))
-                return Result.success(response.text)
-            else:
-                logger.warning("LLM returned no text for a %d-char prompt", len(prompt))
-                return Result.failure(llm_provider_error("Empty response from LLM"))
-
         except Exception as e:
-            api_time = time.time() - start_time
-            error_str = str(e)
-            logger.error("LLM API error after %.2fs: %s", api_time, error_str[:200])
+            logger.error("LLM API error after %.2fs: %s", time.time() - start_time, str(e)[:200])
             return Result.failure(llm_provider_error(f"Content generation failed: {e!s}"))
+        logger.debug("LLM call returned in %.2fs", time.time() - start_time)
+
+        candidate = response.candidates[0] if response.candidates else None
+        finish_reason = candidate.finish_reason if candidate else None
+        # Text cut off at the token limit would silently drop the rest of the passage
+        if finish_reason == types.FinishReason.MAX_TOKENS:
+            logger.warning("LLM output hit the token limit for a %d-char prompt; discarding it", len(prompt))
+            return Result.failure(llm_provider_error("LLM output was truncated at the token limit"))
+
+        # The SDK joins every text part and skips thought parts; taking only the
+        # first part would drop the rest of a reply split across parts
+        text = response.text
+        if not text:
+            logger.warning("LLM returned no text for a %d-char prompt (finish reason: %s)", len(prompt), finish_reason)
+            return Result.failure(llm_provider_error("Empty response from LLM"))
+        logger.debug("LLM returned %d chars", len(text))
+        return Result.success(text)
