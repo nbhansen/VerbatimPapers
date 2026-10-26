@@ -10,6 +10,10 @@ class TTSEngine(Enum):
     GEMINI = "gemini"
 
 
+# Characters per Gemini TTS request: about a paragraph, so highlights stay readable
+DEFAULT_GEMINI_CHUNK_SIZE = 1000
+
+
 @dataclass(frozen=True)
 class GeminiConfig:
     """Configuration for Gemini TTS engine."""
@@ -18,6 +22,8 @@ class GeminiConfig:
     voice_name: str = "Kore"
     model_name: str = "gemini-2.5-flash-preview-tts"  # Speech output needs a *-tts model
     style_prompt: str | None = None
+    # Gemini gives no sentence boundaries, so each chunk is one read-along highlight
+    chunk_size: int = DEFAULT_GEMINI_CHUNK_SIZE
 
 
 @dataclass(frozen=True)

@@ -322,8 +322,14 @@ class TestTextPipelinePromptGenerationTDD:
         text = "Sample text"
         prompt = pipeline._generate_cleaning_prompt(text)
 
-        assert "Clean this text for text-to-speech" in prompt
-        assert "Page numbers, headers, footers" in prompt
+        assert "for text-to-speech" in prompt
+        # What the listener doesn't need: page furniture and publisher metadata
+        for removed in ("running headers and footers", "DOIs, URLs", "To cite this article", "copyright"):
+            assert removed in prompt
+        # What must survive: everything that is the paper itself, unaltered
+        for kept in ("the title", "abstract", "all body text", "author-year citations"):
+            assert kept in prompt
+        assert "Do not summarize, shorten, reword or reorder anything." in prompt
         assert "Restore correct punctuation" in prompt
         # Speech rhythm comes from ordinary punctuation; invented pause markup is a
         # no-op at best and erases sentence boundaries at worst.

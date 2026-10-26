@@ -40,6 +40,11 @@ tts:
     # Omit for the built-in academic-reading default; set to "" to send text bare.
     # style_prompt: "Read this slowly and clearly, pausing between sections."
 
+    # Characters per request. Gemini returns no sentence boundaries, so each
+    # chunk is one read-along highlight: smaller means finer highlighting but
+    # more API calls (a 30-page paper is ~90 requests at 1000).
+    chunk_size: 1000
+
 # Text Processing Pipeline
 text_processing:
   # Use LLM to clean and fix OCR errors, and repair punctuation damaged by PDF
@@ -49,6 +54,8 @@ text_processing:
 
   # Chunk sizes for processing
   llm_chunk_size: 50000
+  # Piper's chunk size (it highlights per sentence regardless); Gemini uses
+  # tts.gemini.chunk_size instead
   audio_target_chunk_size: 3000
 
 # File Storage Settings

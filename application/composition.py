@@ -119,8 +119,14 @@ class Services:
             encoder=self.audio_encoder,
             assembler=self.audio_assembler,
             max_concurrent=self.config.performance.audio_concurrent_chunks,
-            audio_target_chunk_size=self.config.text_processing.audio_target_chunk_size,
+            audio_target_chunk_size=self._tts_chunk_size(),
         )
+
+    def _tts_chunk_size(self) -> int:
+        """Gemini's chunks are its read-along highlights, so it has its own, smaller size."""
+        if self.config.tts.engine == TTSEngine.GEMINI and self.config.gemini is not None:
+            return self.config.gemini.chunk_size
+        return self.config.text_processing.audio_target_chunk_size
 
     @cached_property
     def audio_assembler(self) -> AudioAssembler:

@@ -214,11 +214,21 @@ class TextPipeline(ITextPipeline):
 - Prefer commas or dashes over parentheses for asides (parentheses are silent when spoken)
 - Use ordinary punctuation only. Do NOT add "..." or repeated punctuation for emphasis or pauses"""
 
-        return f"""Clean this text for text-to-speech by removing ONLY:
-- Page numbers, headers, footers
-- Reference markers like [1], [2], etc.
-- Broken hyphenations across lines
+        return f"""Clean this text, extracted from an academic PDF, for text-to-speech.
+Remove ONLY what a listener doesn't need:
+- Page numbers, and running headers and footers: a journal name, short title or author
+  names repeated at the top or bottom of pages
+- Publisher and article metadata: DOIs, URLs, ISSNs, "To cite this article" blocks,
+  copyright and licence notices, received/accepted/published dates, and links such as
+  "View supplementary material"
+- Numbered reference markers like [1] or [2-4]; keep author-year citations like
+  (Smith 2020), which are part of the sentence
+- Hyphenation broken across lines: join "inter-" + "national" into "international"
 - Excessive whitespace
+
+Keep everything else word for word: the title, the authors on the title page, the
+abstract, headings, all body text, figure and table captions, and footnote text.
+Do not summarize, shorten, reword or reorder anything.
 
 {punctuation_instruction}
 
