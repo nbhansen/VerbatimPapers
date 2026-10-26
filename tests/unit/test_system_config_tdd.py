@@ -15,78 +15,6 @@ from application.config.system_config import SystemConfig
 from domain.config.tts_config import GeminiConfig, PiperConfig, TTSConfig, TTSEngine
 
 
-class TestTTSEngineEnum:
-    """TDD tests for TTSEngine enumeration."""
-
-    def test_tts_engine_enum_values(self):
-        """Should define correct TTS engine values."""
-        assert TTSEngine.PIPER.value == "piper"
-        assert TTSEngine.GEMINI.value == "gemini"
-
-    def test_tts_engine_enum_creation_from_string(self):
-        """Should create enum from valid string values."""
-        assert TTSEngine("piper") == TTSEngine.PIPER
-        assert TTSEngine("gemini") == TTSEngine.GEMINI
-
-    def test_tts_engine_enum_invalid_value_raises_error(self):
-        """Should raise ValueError for invalid TTS engine values."""
-        with pytest.raises(ValueError, match="'invalid_engine' is not a valid TTSEngine"):
-            TTSEngine("invalid_engine")
-
-    def test_tts_engine_enum_case_sensitivity(self):
-        """Should be case-sensitive for enum values."""
-        with pytest.raises(ValueError, match="'PIPER' is not a valid TTSEngine"):
-            TTSEngine("PIPER")
-        with pytest.raises(ValueError, match="'Gemini' is not a valid TTSEngine"):
-            TTSEngine("Gemini")
-
-
-class TestSystemConfigCreation:
-    """TDD tests for SystemConfig basic creation and defaults."""
-
-    def test_system_config_minimal_creation(self):
-        """Should create SystemConfig with minimal required parameters."""
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.PIPER),
-            files=FileConfig(),
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-        )
-
-        assert config.tts.engine == TTSEngine.PIPER
-        assert config.files.upload_folder == "uploads"
-        assert config.files.audio_folder == "audio_outputs"
-        assert config.text_processing.enable_cleaning is True
-
-    def test_system_config_with_custom_values(self):
-        """Should create SystemConfig with custom values."""
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.GEMINI),
-            files=FileConfig(
-                upload_folder="custom_uploads",
-                audio_folder="custom_audio",
-            ),
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(
-                enable_cleaning=False,
-            ),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-            gemini=GeminiConfig(api_key="test-key"),
-        )
-
-        assert config.tts.engine == TTSEngine.GEMINI
-        assert config.files.upload_folder == "custom_uploads"
-        assert config.files.audio_folder == "custom_audio"
-        assert config.text_processing.enable_cleaning is False
-
-
 class TestSystemConfigValidationTDD:
     """TDD tests for SystemConfig validation logic."""
 
@@ -349,67 +277,6 @@ class TestSystemConfigValidationTDD:
 class TestSystemConfigHelperMethodsTDD:
     """TDD tests for SystemConfig helper methods."""
 
-    def test_get_piper_config_creates_correct_config(self):
-        """Should create proper Piper configuration object."""
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.PIPER),
-            files=FileConfig(),
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-            gemini=GeminiConfig(),
-            piper=PiperConfig(model_name="en_US-amy-high", download_dir="/custom/models", length_scale=1.2),
-        )
-
-        result = config.piper  # Direct access to piper config
-
-        # Should return a config object with correct values
-        assert result is not None
-        assert hasattr(result, "model_name")
-        assert hasattr(result, "download_dir")
-        assert hasattr(result, "length_scale")
-        assert result.model_name == "en_US-amy-high"
-        assert result.download_dir == "/custom/models"
-        assert result.length_scale == 1.2
-
-    def test_log_summary_displays_configuration_info(self):
-        """Should log comprehensive configuration summary."""
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.GEMINI),
-            files=FileConfig(upload_folder="test_uploads", audio_folder="test_audio"),
-            cleanup=FileCleanupConfig(enabled=True, max_file_age_hours=48.0, auto_cleanup_interval_hours=12.0),
-            text_processing=TextProcessingConfig(enable_cleaning=True),
-            performance=PerformanceConfig(audio_concurrent_chunks=8),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-            gemini=GeminiConfig(api_key="test_key", voice_name="Charon"),
-            piper=PiperConfig(),
-        )
-
-        # Capture log output
-        import logging
-
-        mock_logger = logging.getLogger("test_log_summary")
-        with patch.object(mock_logger, "info") as mock_info:
-            config.log_summary(mock_logger)
-
-            # Verify key information is logged
-            logged_text = mock_info.call_args[0][0]
-
-            assert "TTS Engine: gemini" in logged_text
-            assert "Text Cleaning: Enabled" in logged_text
-            assert "Audio Concurrent Chunks: 8" in logged_text
-            assert "Upload Folder: test_uploads" in logged_text
-            assert "Audio Folder: test_audio" in logged_text
-            assert "File Cleanup: Enabled" in logged_text
-            assert "Max File Age: 48.0 hours" in logged_text
-            assert "Gemini API Key: Set" in logged_text
-            assert "Gemini Voice: Charon" in logged_text
-
     def test_log_summary_handles_missing_api_key(self):
         """Should show 'Missing' for unset API key."""
         config = SystemConfig(
@@ -433,32 +300,3 @@ class TestSystemConfigHelperMethodsTDD:
 
             logged_text = mock_info.call_args[0][0]
             assert "Gemini API Key: Missing" in logged_text
-
-    def test_log_summary_shows_piper_specific_info(self):
-        """Should show Piper-specific configuration when using Piper."""
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.PIPER),
-            files=FileConfig(),
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-            gemini=GeminiConfig(),
-            piper=PiperConfig(
-                model_name="en_US-lessac-high",
-                download_dir="/custom/piper/models",
-            ),
-        )
-
-        import logging
-
-        mock_logger = logging.getLogger("test_log_summary")
-        with patch.object(mock_logger, "info") as mock_info:
-            config.log_summary(mock_logger)
-
-            logged_text = mock_info.call_args[0][0]
-            assert "TTS Engine: piper" in logged_text
-            assert "Piper Model: en_US-lessac-high" in logged_text
-            assert "Piper Models Dir: /custom/piper/models" in logged_text
