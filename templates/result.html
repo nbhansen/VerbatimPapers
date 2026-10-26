@@ -26,7 +26,7 @@
                 </audio>
             </div>
             <div class="download-section">
-                <a href="{{ url_for('serve_audio', filename=combined_mp3_file) }}" download="{{ combined_mp3_file }}" class="btn btn-primary download-btn">
+                <a href="{{ url_for('serve_audio', filename=combined_mp3_file) }}" download="{{ download_names[combined_mp3_file] }}" class="btn btn-primary download-btn">
                     <i class="fas fa-download"></i> Download MP3
                     <span class="size-info">Optimized for all devices</span>
                 </a>
@@ -49,7 +49,7 @@
                 </audio>
             </div>
             <div class="download-section">
-                <a href="{{ url_for('serve_audio', filename=audio_files[0]) }}" download="{{ audio_files[0] }}" class="btn btn-primary download-btn">
+                <a href="{{ url_for('serve_audio', filename=audio_files[0]) }}" download="{{ download_names[audio_files[0]] }}" class="btn btn-primary download-btn">
                     <i class="fas fa-download"></i> Download Audio
                 </a>
 
@@ -68,7 +68,7 @@
             {% if audio_files %}
                 <div class="download-section mt-lg">
                     {% for audio_file in audio_files %}
-                        <a href="{{ url_for('serve_audio', filename=audio_file) }}" download="{{ audio_file }}" class="btn btn-primary">
+                        <a href="{{ url_for('serve_audio', filename=audio_file) }}" download="{{ download_names[audio_file] }}" class="btn btn-primary">
                             <i class="fas fa-download"></i> Download Part {{ loop.index }}
                         </a>
                     {% endfor %}

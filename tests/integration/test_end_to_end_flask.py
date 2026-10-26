@@ -318,11 +318,50 @@ class TestEndToEndPDFConversion:
 
             read_along = client.get(link.group(1))
             assert read_along.status_code == 200, read_along.get_data(as_text=True)
-            assert "/audio_outputs/timing_test_timed.mp3" in read_along.get_data(as_text=True)
+            base_filename = f"timing_test_{match.group(1)[:8]}"
+            assert f"/audio_outputs/{base_filename}_timed.mp3" in read_along.get_data(as_text=True)
 
-            timing = client.get("/api/timing/timing_test")
+            timing = client.get(f"/api/timing/{base_filename}")
             assert timing.status_code == 200
             assert timing.get_json()["text_segments"], "Timing data should contain segments"
+
+    def test_same_named_uploads_get_distinct_outputs(
+        self, sample_pdf_content: bytes, flask_test_config: SystemConfig
+    ) -> None:
+        """Two concurrent conversions of identically named PDFs don't overwrite each other."""
+        with (
+            patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider", return_value=FakeTTSEngine()),
+            patch("application.config.system_config.SystemConfig.from_yaml", return_value=flask_test_config),
+        ):
+            app = create_app()
+            app.config.update({"TESTING": True})
+            register_routes(app)
+            client = app.test_client()
+
+            operation_ids = []
+            for _ in range(2):
+                response = client.post(
+                    "/upload-with-timing",
+                    data={"pdf_file": (BytesIO(sample_pdf_content), "paper.pdf")},
+                    content_type="multipart/form-data",
+                )
+                match = re.search(r'const operationId = "([0-9a-f-]+)"', response.get_data(as_text=True))
+                assert match
+                operation_ids.append(match.group(1))
+
+            app.config["APP_CONTEXT"].background_executor.shutdown(wait=True)
+
+            audio_dir = Path(flask_test_config.files.audio_folder)
+            mp3_links = []
+            for operation_id in operation_ids:
+                page = client.get(f"/result/{operation_id}").get_data(as_text=True)
+                mp3 = f"paper_{operation_id[:8]}_timed.mp3"
+                assert f"/audio_outputs/{mp3}" in page, page
+                assert 'download="paper_timed.mp3"' in page, "Download name should stay human-readable"
+                assert (audio_dir / mp3).exists()
+                assert (audio_dir / f"paper_{operation_id[:8]}_timing.json").exists()
+                mp3_links.append(mp3)
+            assert mp3_links[0] != mp3_links[1]
 
 
 class TestBackgroundProcessingModel:
