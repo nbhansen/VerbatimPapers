@@ -305,13 +305,29 @@ class PiperTTSProvider(ITTSEngine):
             sentences = split_sentences(text) or [text]
 
             segments: list[SynthesizedSegment] = []
-            for sentence in sentences:
+            for position, sentence in enumerate(sentences, 1):
                 if not sentence.strip():
                     continue
 
                 chunks = list(self.voice_instance.synthesize(sentence, syn_config))
                 if not chunks:
-                    logger.debug("Piper produced no audio for sentence: %r", sentence[:60])
+                    # Nothing speakable (e.g. a lone dash). Kept as a silent segment, so its
+                    # text still shows in read-along instead of vanishing from the document.
+                    logger.warning(
+                        "Piper produced no audio for sentence %d of %d (%d chars); kept as a silent segment",
+                        position,
+                        len(sentences),
+                        len(sentence),
+                    )
+                    segments.append(
+                        SynthesizedSegment(
+                            text=sentence,
+                            pcm=b"",
+                            sample_rate=self.voice_instance.config.sample_rate,
+                            sample_width=2,  # Piper always produces 16-bit mono
+                            channels=1,
+                        )
+                    )
                     continue
 
                 first = chunks[0]
@@ -325,7 +341,7 @@ class PiperTTSProvider(ITTSEngine):
                     )
                 )
 
-            if not segments:
+            if not any(segment.pcm for segment in segments):
                 raise Exception("Piper produced no audio chunks")
 
             return segments

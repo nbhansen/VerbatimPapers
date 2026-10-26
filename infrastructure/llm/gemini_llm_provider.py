@@ -50,8 +50,8 @@ class GeminiLLMProvider(ILLMProvider):
         if not self.client:
             return Result.failure(llm_provider_error("Client not available"))
 
-        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
-        logger.info("LLM API Call: Model=%s, prompt='%s' (%s chars)", self.model_name, prompt_preview, len(prompt))
+        # Prompts are document text, so only their length is ever logged
+        logger.debug("LLM call: model=%s, %d-char prompt", self.model_name, len(prompt))
 
         try:
             start_time = time.time()
@@ -66,7 +66,7 @@ class GeminiLLMProvider(ILLMProvider):
             )
 
             api_time = time.time() - start_time
-            logger.info("LLM API Success: %.2fs for '%s'", api_time, prompt_preview)
+            logger.debug("LLM call returned in %.2fs", api_time)
 
             # Inspect response structure for debugging
             if response:
@@ -97,14 +97,11 @@ class GeminiLLMProvider(ILLMProvider):
                 logger.debug("LLM Response: %s chars returned (via .text accessor)", len(response.text))
                 return Result.success(response.text)
             else:
-                logger.warning("LLM API: No text in response for '%s'", prompt_preview)
-                if response:
-                    logger.debug("Response object type: %s", type(response))
-                    logger.debug("Response attributes: %s...", dir(response)[:10])  # First 10 attributes
+                logger.warning("LLM returned no text for a %d-char prompt", len(prompt))
                 return Result.failure(llm_provider_error("Empty response from LLM"))
 
         except Exception as e:
             api_time = time.time() - start_time
             error_str = str(e)
-            logger.error("LLM API Error (%.2fs): %s for '%s'", api_time, error_str[:200], prompt_preview)
+            logger.error("LLM API error after %.2fs: %s", api_time, error_str[:200])
             return Result.failure(llm_provider_error(f"Content generation failed: {e!s}"))

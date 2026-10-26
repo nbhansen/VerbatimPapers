@@ -346,9 +346,10 @@ def register_routes(app: Flask) -> None:
             }
             return jsonify(stats)
 
-        except Exception as e:
-            logger.error("Admin file_stats error: %s", str(e))
-            return jsonify({"error": str(e)}), 500
+        except Exception:
+            # Exception text can carry filesystem paths; it goes to the log only
+            logger.exception("Admin file_stats failed")
+            return jsonify({"error": "Could not read file statistics; see the server log"}), 500
 
     @app.route("/admin/cleanup", methods=["POST"])
     def manual_cleanup() -> Response | tuple[Response, int]:
@@ -379,9 +380,9 @@ def register_routes(app: Flask) -> None:
             }
             return jsonify(result)
 
-        except Exception as e:
-            logger.error("Admin cleanup error: %s", str(e))
-            return jsonify({"error": str(e)}), 500
+        except Exception:
+            logger.exception("Admin cleanup failed")
+            return jsonify({"error": "Cleanup failed; see the server log"}), 500
 
 
 def render_upload_result(

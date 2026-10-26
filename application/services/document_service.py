@@ -4,6 +4,7 @@ This service decouples the web layer from the core domain logic by providing
 a unified interface for processing documents into audio.
 """
 
+import dataclasses
 import json
 import logging
 from pathlib import Path
@@ -168,9 +169,10 @@ class DocumentProcessingService:
                 )
                 return
 
-            # Every conversion gets a read-along timeline
-            if audio_result.timing_data:
-                self._save_timing_data(base_filename, audio_result.timing_data)
+            # Every conversion gets a read-along timeline. If it can't be saved, the
+            # result is published without one, so no Read-Along link leads to a 404.
+            if audio_result.timing_data and not self._save_timing_data(base_filename, audio_result.timing_data):
+                audio_result = dataclasses.replace(audio_result, timing_data=None)
 
             self.progress_store.update(
                 operation_id,
@@ -201,8 +203,8 @@ class DocumentProcessingService:
             # Always clean up the uploaded file when processing finishes
             self._cleanup_upload(saved_file_path)
 
-    def _save_timing_data(self, base_filename: str, timing_metadata: "TimingMetadata") -> None:
-        """Save timing metadata as JSON file."""
+    def _save_timing_data(self, base_filename: str, timing_metadata: "TimingMetadata") -> bool:
+        """Save timing metadata as a JSON file; False if it couldn't be written."""
         timing_json = {
             "total_duration": timing_metadata.total_duration,
             "audio_files": timing_metadata.audio_files,
@@ -227,8 +229,10 @@ class DocumentProcessingService:
                 json.dump(timing_json, f, indent=2, ensure_ascii=False)
 
             logger.info("Saved timing data: %s", timing_filename)
-        except Exception as e:
-            logger.error("Failed to save timing data: %s", e)
+        except OSError:
+            logger.exception("Failed to save timing data %s; publishing without read-along", timing_filename)
+            return False
+        return True
 
     @staticmethod
     def _cleanup_upload(saved_file_path: str) -> None:
