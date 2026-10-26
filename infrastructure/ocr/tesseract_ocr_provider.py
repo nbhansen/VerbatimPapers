@@ -13,7 +13,7 @@ from domain.errors import Result, text_extraction_error
 from domain.interfaces import IOCRProvider
 from domain.models import PageRange, PDFInfo
 
-logger = logging.getLogger("ocr")
+logger = logging.getLogger(__name__)
 
 
 class TesseractOCRProvider(IOCRProvider):

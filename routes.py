@@ -35,6 +35,8 @@ from utils import (
     parse_page_range_from_form,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def background_process_document(
     operation_id: str,
@@ -58,8 +60,7 @@ def background_process_document(
     """
     # Use the Flask app context for this thread
     with app.app_context():
-        bg_logger = app_context.get_logger("routes.background")
-        bg_logger.debug("Background thread started for operation %s, file: %s", operation_id[:8], original_filename)
+        logger.debug("Background thread started for operation %s, file: %s", operation_id[:8], original_filename)
         try:
             # Get service from container
             service = app_context.service_container.get(DocumentProcessingService)
@@ -74,7 +75,7 @@ def background_process_document(
             )
 
         except Exception as e:
-            get_logger("routes").exception(f"Background process wrapper failed: {e}")
+            logger.exception("Background process wrapper failed: %s", e)
             enhanced_error = get_processing_stage_error("processing", e, original_filename)
             get_progress_store().update(
                 operation_id, "error", 0, "Processing failed unexpectedly", is_error=True, error_message=enhanced_error
@@ -95,7 +96,7 @@ def handle_background_completion(
     exc = future.exception()
     if exc is None:
         return
-    logging.getLogger(__name__).error("Uncaught error in background operation %s", operation_id[:8], exc_info=exc)
+    logger.error("Uncaught error in background operation %s", operation_id[:8], exc_info=exc)
     progress_store.update(
         operation_id, "error", 0, "Processing failed unexpectedly", is_error=True, error_message=str(exc)
     )
@@ -115,12 +116,10 @@ def is_processor_available() -> bool:
     """Check if processor is available from context."""
     try:
         result = get_app_context().is_processor_available
-        logger = get_logger("routes")
-        logger.info(f"Processor available check: {result}")
+        logger.info("Processor available check: %s", result)
         return result
     except Exception as e:
-        logger = get_logger("routes")
-        logger.error(f"Error checking processor availability: {e}")
+        logger.error("Error checking processor availability: %s", e)
         return False
 
 
@@ -132,11 +131,6 @@ def get_app_config() -> SystemConfig:
 def get_progress_store() -> ThreadSafeProgressStore:
     """Get the progress store from context."""
     return get_app_context().progress_store
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Get logger from context."""
-    return get_app_context().get_logger(name)
 
 
 def register_routes(app: Flask) -> None:
@@ -171,7 +165,7 @@ def register_routes(app: Flask) -> None:
             with timing_path.open(encoding="utf-8") as f:
                 timing_json = json.load(f)
         except (OSError, ValueError) as e:
-            get_logger("routes").error("Error loading timing data: %s", str(e))
+            logger.error("Error loading timing data: %s", str(e))
             return "Failed to load timing data", 500
 
         audio_files = timing_json.get("audio_files") or []
@@ -205,7 +199,7 @@ def register_routes(app: Flask) -> None:
 
             return jsonify(timing_data)
         except Exception as e:
-            get_logger("routes").error("Error serving timing data: %s", str(e))
+            logger.error("Error serving timing data: %s", str(e))
             return jsonify({"error": "Failed to load timing data"}), 500
 
     @app.route("/api/progress/<operation_id>")
@@ -240,7 +234,7 @@ def register_routes(app: Flask) -> None:
             return jsonify({"message": "Operation already completed", "cancelled": False}), 200
 
         get_progress_store().cancel(operation_id)
-        get_logger("routes").info("Cancellation requested for operation: %s", operation_id[:8])
+        logger.info("Cancellation requested for operation: %s", operation_id[:8])
         return jsonify({"message": "Cancellation requested", "cancelled": True})
 
     @app.route("/result/<operation_id>")
@@ -282,7 +276,7 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/get_pdf_info", methods=["POST"])
     def get_pdf_info() -> Response | tuple[Response, int]:
-        get_logger("routes").debug("PDF info request received")
+        logger.debug("PDF info request received")
         service = get_pdf_service()
         if not is_processor_available() or service is None:
             return (
@@ -338,7 +332,7 @@ def register_routes(app: Flask) -> None:
         Returns:
             (file, error_message) - file if valid, error message if invalid
         """
-        get_logger("routes").debug("Validating upload request")
+        logger.debug("Validating upload request")
         service = get_pdf_service()
         if not is_processor_available() or service is None:
             return (
@@ -375,8 +369,6 @@ def register_routes(app: Flask) -> None:
         except ValueError as e:
             return f"Invalid page range: {e}", 400
 
-        route_logger = get_logger("routes")
-
         # Generate unique operation ID
         operation_id = str(uuid.uuid4())
 
@@ -394,8 +386,8 @@ def register_routes(app: Flask) -> None:
         original_filename = secure_filename(file.filename) or "upload.pdf"
         saved_path = Path(config.files.upload_folder) / f"{operation_id}_{original_filename}"
         file.save(str(saved_path))
-        route_logger.info("Upload received: %s (timing=%s, op=%s)", original_filename, enable_timing, operation_id[:8])
-        route_logger.debug("Saved upload to: %s", saved_path)
+        logger.info("Upload received: %s (timing=%s, op=%s)", original_filename, enable_timing, operation_id[:8])
+        logger.debug("Saved upload to: %s", saved_path)
 
         # Convert form data to dict (Flask objects don't work in threads)
         form_data = dict(request.form)
@@ -417,7 +409,7 @@ def register_routes(app: Flask) -> None:
         future.add_done_callback(
             partial(handle_background_completion, operation_id=operation_id, progress_store=context.progress_store)
         )
-        route_logger.info("Background processing queued: op=%s", operation_id[:8])
+        logger.info("Background processing queued: op=%s", operation_id[:8])
 
         # Return processing page immediately
         return render_template("processing.html", operation_id=operation_id, enable_timing=enable_timing)
@@ -481,7 +473,7 @@ def register_routes(app: Flask) -> None:
             return jsonify(stats)
 
         except Exception as e:
-            get_logger("routes").error("Admin file_stats error: %s", str(e))
+            logger.error("Admin file_stats error: %s", str(e))
             return jsonify({"error": str(e)}), 500
 
     @app.route("/admin/cleanup", methods=["POST"])
@@ -521,7 +513,7 @@ def register_routes(app: Flask) -> None:
             return jsonify(result)
 
         except Exception as e:
-            get_logger("routes").error("Admin cleanup error: %s", str(e))
+            logger.error("Admin cleanup error: %s", str(e))
             return jsonify({"error": str(e)}), 500
 
     @app.route("/admin/cleanup_scheduler", methods=["POST"])
@@ -541,7 +533,7 @@ def register_routes(app: Flask) -> None:
             return jsonify(scheduler.run_manual_cleanup())
 
         except Exception as e:
-            get_logger("routes").error("Scheduler cleanup error: %s", str(e))
+            logger.error("Scheduler cleanup error: %s", str(e))
             return jsonify({"error": str(e)}), 500
 
     @app.route("/admin/test")

@@ -5,6 +5,7 @@ pattern with dependency injection through ApplicationContext.
 """
 
 import atexit
+import logging
 import os
 import signal
 import sys
@@ -26,7 +27,7 @@ def create_application() -> Flask:
 
     # Get context from app config
     context = app.config["APP_CONTEXT"]
-    logger = context.get_logger(__name__)
+    logger = logging.getLogger(__name__)
 
     # Start cleanup scheduler if available
     if context.cleanup_scheduler and not is_flask_reloader():
@@ -63,9 +64,7 @@ app = create_application()
 if __name__ == "__main__":
     # Get context for logging
     context = app.config["APP_CONTEXT"]
-    logger = context.get_logger(__name__)
-
-    import logging
+    logger = logging.getLogger(__name__)
 
     logging.getLogger("werkzeug").setLevel(logging.INFO)
 

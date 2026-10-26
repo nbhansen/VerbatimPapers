@@ -76,7 +76,7 @@ class FileCleanupScheduler:
                 logger.debug("Cleanup cycle: checking for expired files")
                 self._process_expired_files()
             except Exception:
-                logger.error("Error during cleanup cycle", exc_info=True)
+                logger.exception("Error during cleanup cycle")
 
             # Wait for next interval, checking stop event
             self._stop_event.wait(self.check_interval_seconds)
@@ -105,7 +105,7 @@ class FileCleanupScheduler:
                 logger.info("Deleted expired file: %s (age=%.0fs)", filepath, current_time - creation_time)
                 successfully_deleted.append(filepath)
             except Exception:
-                logger.error("Failed to delete expired file: %s (will retry next cycle)", filepath, exc_info=True)
+                logger.exception("Failed to delete expired file: %s (will retry next cycle)", filepath)
 
         # Remove only successfully deleted files from tracking
         if successfully_deleted:

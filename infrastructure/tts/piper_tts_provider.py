@@ -23,7 +23,7 @@ from infrastructure.tts.text_segmenter import TextSegmenter
 if TYPE_CHECKING:
     from piper.config import SynthesisConfig
 
-logger = logging.getLogger("piper_tts")
+logger = logging.getLogger(__name__)
 
 # Optional imports - handle gracefully at runtime
 try:
@@ -166,7 +166,7 @@ class PiperTTSProvider(ITTSEngine):
             logger.error("Piper command timed out after %s seconds", timeout_duration)
             return Result.failure(tts_engine_error(f"Piper command timed out after {timeout_duration} seconds"))
         except Exception as e:
-            logger.error("Piper TTS generation failed: %s: %s", type(e).__name__, e, exc_info=True)
+            logger.exception("Piper TTS generation failed: %s: %s", type(e).__name__, e)
             return Result.failure(tts_engine_error(f"Audio generation failed: {e!s}"))
 
     async def synthesize_async(self, text: str) -> Result[Sequence[SynthesizedSegment]]:
@@ -181,17 +181,17 @@ class PiperTTSProvider(ITTSEngine):
 
     def _secure_download(self, url: str, destination: str, timeout: int = 30) -> None:
         """Securely download a file with SSL verification and URL validation."""
-        logger.info(f"Starting secure download from {url} to {destination}")
+        logger.info("Starting secure download from %s to %s", url, destination)
 
         # Validate URL structure
         parsed_url = urlparse(url)
         if not parsed_url.scheme or not parsed_url.netloc:
-            logger.error(f"Invalid URL format: {url}")
+            logger.error("Invalid URL format: %s", url)
             raise ValueError(f"Invalid URL format: {url}")
 
         # Only allow HTTPS for security
         if parsed_url.scheme != "https":
-            logger.error(f"Non-HTTPS URL rejected for security: {url}")
+            logger.error("Non-HTTPS URL rejected for security: %s", url)
             raise ValueError(f"Only HTTPS URLs are allowed: {url}")
 
         # Create SSL context with certificate verification
@@ -206,7 +206,7 @@ class PiperTTSProvider(ITTSEngine):
             # Download with SSL context and timeout
             with urllib.request.urlopen(request, context=ssl_context, timeout=timeout) as response:  # nosec B310
                 if response.status != 200:
-                    logger.error(f"Download failed with HTTP {response.status}: {url}")
+                    logger.error("Download failed with HTTP %s: %s", response.status, url)
                     raise urllib.error.HTTPError(url, response.status, "Download failed", None, None)  # type: ignore[arg-type]
 
                 # Write to destination file
@@ -219,10 +219,10 @@ class PiperTTSProvider(ITTSEngine):
                         f.write(chunk)
                         total_bytes += len(chunk)
 
-                logger.info(f"Download completed successfully - {total_bytes:,} bytes written to {destination}")
+                logger.info("Download completed successfully - %d bytes written to %s", total_bytes, destination)
 
         except urllib.error.URLError as e:
-            logger.error(f"Network error downloading {url}: {e}")
+            logger.error("Network error downloading %s: %s", url, e)
             raise Exception(f"Network error downloading {url}: {e}") from e
         except ssl.SSLError as e:
             raise Exception(f"SSL verification failed for {url}: {e}") from e

@@ -7,24 +7,11 @@ dependencies and eliminates global state, following hexagonal architecture princ
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import logging
-from typing import Protocol
 
 from application.config.system_config import SystemConfig
 from application.container.service_container import ServiceContainer
 from application.services.progress_store import ThreadSafeProgressStore
 from infrastructure.file.cleanup_scheduler import FileCleanupScheduler
-
-
-class LoggerFactory(Protocol):
-    """Protocol for logger factory to avoid circular imports."""
-
-    def get_logger(self, name: str) -> logging.Logger:
-        """Get a logger for the specified module."""
-        ...
-
-    def get_app_logger(self) -> logging.Logger:
-        """Get the main application logger."""
-        ...
 
 
 @dataclass(frozen=True)
@@ -37,7 +24,6 @@ class ApplicationContext:
 
     config: SystemConfig
     service_container: ServiceContainer
-    logger_factory: LoggerFactory
     progress_store: ThreadSafeProgressStore
     background_executor: ThreadPoolExecutor
     cleanup_scheduler: FileCleanupScheduler | None = None
@@ -57,7 +43,3 @@ class ApplicationContext:
         except Exception as e:
             logger.debug("Audio service check failed: %s", e)
             return False
-
-    def get_logger(self, name: str) -> logging.Logger:
-        """Get a logger instance for the given module."""
-        return self.logger_factory.get_logger(name)
