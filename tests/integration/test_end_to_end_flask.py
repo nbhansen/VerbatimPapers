@@ -567,3 +567,68 @@ class TestUploadPageRangeValidation:
         body = response.get_data(as_text=True)
         assert "Invalid page range" in body
         assert expected_fragment in body
+
+
+XSS_PAYLOAD = "<img src=x onerror=alert(1)>"
+
+
+class TestErrorResponses:
+    """Error responses keep their HTTP status and never reflect raw HTML."""
+
+    def test_unknown_route_returns_404(self, client: FlaskClient) -> None:
+        """HTTP errors pass through the global handler instead of becoming 500s."""
+        response = client.get("/no-such-page")
+
+        assert response.status_code == 404
+
+    def test_unhandled_exception_hides_exception_text(self, test_app: Flask) -> None:
+        """The generic 500 page must not echo exception details."""
+
+        @test_app.route("/boom")
+        def boom() -> str:
+            raise RuntimeError("secret /home/user/path")
+
+        response = test_app.test_client().get("/boom")
+
+        assert response.status_code == 500
+        assert "secret" not in response.get_data(as_text=True)
+
+    @pytest.mark.parametrize(
+        ("filename", "form"),
+        [
+            (f"{XSS_PAYLOAD}.txt", {}),
+            ("doc.pdf", {"use_page_range": "on", "start_page": XSS_PAYLOAD}),
+        ],
+        ids=["bad-filename", "bad-page-range"],
+    )
+    def test_upload_errors_escape_user_input(self, client: FlaskClient, filename: str, form: dict[str, str]) -> None:
+        """Rejected uploads report the bad value escaped, with a 400."""
+        response = client.post(
+            "/upload",
+            data={"pdf_file": (BytesIO(b"%PDF-1.4 fake"), filename), **form},
+            content_type="multipart/form-data",
+        )
+
+        body = response.get_data(as_text=True)
+        assert response.status_code == 400
+        assert XSS_PAYLOAD not in body
+        assert "&lt;img src=x onerror=alert(1)&gt;" in body
+
+    def test_read_along_does_not_reflect_url(self, client: FlaskClient) -> None:
+        """An unknown read-along name is a 404 that does not echo the URL."""
+        response = client.get(f"/read-along/{XSS_PAYLOAD}")
+
+        assert response.status_code == 404
+        assert "onerror" not in response.get_data(as_text=True)
+
+    def test_failed_operation_result_shows_escaped_error(self, test_app: Flask) -> None:
+        """A failed operation's result page shows its error, escaped, not 'not yet complete'."""
+        store = test_app.config["APP_CONTEXT"].progress_store
+        store.update("op-failed", "error", 0, "Processing failed", is_error=True, error_message=XSS_PAYLOAD)
+
+        response = test_app.test_client().get("/result/op-failed")
+
+        body = response.get_data(as_text=True)
+        assert response.status_code == 500
+        assert "Processing failed" in body
+        assert XSS_PAYLOAD not in body

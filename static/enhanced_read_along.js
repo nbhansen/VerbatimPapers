@@ -431,7 +431,7 @@ class EnhancedReadAlongPlayer {
         this.textContainer.innerHTML = `
             <p style="color: #FBFE65; text-align: center; padding: 20px;">
                 ❌ ERROR LOADING TEXT SYNCHRONIZATION<br>
-                <span style="font-size: 0.9em; color: #50C8FC;">${message}</span><br>
+                <span style="font-size: 0.9em; color: #50C8FC;">${this.escapeHtml(message)}</span><br>
                 <br>
                 Check browser console for details.
             </p>

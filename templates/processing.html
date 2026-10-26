@@ -71,6 +71,13 @@
         }
     }
 
+    // Server text (e.g. error messages) is set as textContent, never parsed as HTML
+    function setStatus(iconClass, text) {
+        const icon = document.createElement('i');
+        icon.className = iconClass;
+        statusMessage.replaceChildren(icon, ' ' + text);
+    }
+
     // Check progress status
     function checkProgress() {
         if (cancelled) return;
@@ -82,7 +89,7 @@
 
                 if (data.error) {
                     // Handle error
-                    statusMessage.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + (data.error_message || 'Processing failed');
+                    setStatus('fas fa-exclamation-triangle', data.error_message || 'Processing failed');
                     progressFill.classList.add('error');
                     cancelBtn.textContent = 'Go Back';
                     cancelBtn.onclick = () => window.location.href = '/';
@@ -90,14 +97,14 @@
 
                 } else if (data.cancelled) {
                     // Handle cancellation
-                    statusMessage.innerHTML = '<i class="fas fa-ban"></i> Processing cancelled by user';
+                    setStatus('fas fa-ban', 'Processing cancelled by user');
                     cancelBtn.textContent = 'Go Back';
                     cancelBtn.onclick = () => window.location.href = '/';
                     clearInterval(pollInterval);
 
                 } else if (data.complete) {
                     // Handle completion
-                    statusMessage.innerHTML = '<i class="fas fa-check-circle"></i> Processing complete! Redirecting...';
+                    setStatus('fas fa-check-circle', 'Processing complete! Redirecting...');
                     progressFill.classList.add('success');
                     cancelBtn.style.display = 'none';
                     clearInterval(pollInterval);
@@ -114,7 +121,7 @@
             })
             .catch(error => {
                 console.error('Progress check failed:', error);
-                statusMessage.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Unable to check processing status. Please ensure your internet connection is stable.';
+                setStatus('fas fa-exclamation-triangle', 'Unable to check processing status. Please ensure your internet connection is stable.');
                 progressFill.classList.add('error');
                 // Continue trying after longer delay
                 setTimeout(checkProgress, 3000);
@@ -129,13 +136,13 @@
         }
 
         cancelled = true;
-        statusMessage.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+        setStatus('fas fa-spinner fa-spin', 'Cancelling...');
         cancelBtn.disabled = true;
 
         fetch(`/api/cancel/${operationId}`, { method: 'POST' })
             .then(response => response.json())
             .then(data => {
-                statusMessage.innerHTML = '<i class="fas fa-ban"></i> Processing cancelled';
+                setStatus('fas fa-ban', 'Processing cancelled');
                 cancelBtn.textContent = 'Go Back';
                 cancelBtn.disabled = false;
                 cancelBtn.onclick = () => window.location.href = '/';
@@ -143,7 +150,7 @@
             })
             .catch(error => {
                 console.error('Cancel failed:', error);
-                statusMessage.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Unable to cancel processing. You can close this page or wait for completion.';
+                setStatus('fas fa-exclamation-triangle', 'Unable to cancel processing. You can close this page or wait for completion.');
                 cancelBtn.disabled = false;
                 cancelled = false;
             });

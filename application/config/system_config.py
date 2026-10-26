@@ -348,7 +348,7 @@ class SystemConfig:
     def _parse_flask_config(cls, get_config: ConfigAccessor) -> FlaskConfig:
         """Parse Flask application configuration."""
         return FlaskConfig(
-            debug=cls._parse_bool_value(get_config("app.debug", True), True),
+            debug=cls._parse_bool_value(get_config("app.debug", False), False),
             host=cls._parse_string_value(get_config("app.host", "127.0.0.1"), "127.0.0.1"),
             port=cls._parse_int_value(get_config("app.port", 5000), 5000, 1000, 65535),
         )

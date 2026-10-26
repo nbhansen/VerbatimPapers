@@ -104,6 +104,12 @@ class TestSystemConfigYAMLLoading:
         assert config.admin.enabled is False
         assert config.admin.token is None
 
+    def test_from_yaml_flask_debug_off_by_default(self, tmp_path: Path):
+        """The Werkzeug debugger allows code execution, so it must be opt-in."""
+        config_file = _write_yaml_config(tmp_path, {"tts": {"engine": "piper"}})
+        config = SystemConfig.from_yaml(config_file)
+        assert config.flask.debug is False
+
     def test_from_yaml_admin_enabled_with_token(self, tmp_path: Path):
         """Should parse admin.enabled and the token from the secrets section."""
         config_data = {
