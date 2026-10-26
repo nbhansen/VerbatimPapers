@@ -82,3 +82,13 @@ class TestChunking:
 
         assert result.is_success
         assert result.value == ["One. Two. Three. Four."]
+
+    def test_llm_sees_the_pages_line_structure(self) -> None:
+        """Headers, page numbers and broken hyphenation are only recognizable with the line breaks intact."""
+        pipeline = Mock()
+        pipeline.clean_text.side_effect = Result.success
+        page = "Journal of Things 12 (2020)\nThe inter-\nnational study found\nthat results vary.\n17"
+
+        _engine()._process_text_pipeline([page], pipeline, llm_chunk_size=50000)
+
+        assert pipeline.clean_text.call_args.args[0] == page
