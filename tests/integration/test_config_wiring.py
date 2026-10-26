@@ -103,7 +103,6 @@ class TestSettingsReachConsumers:
         document_engine = container.document_engine
         assert isinstance(document_engine, DocumentEngine)
         assert document_engine.ocr_resolution == 450
-        assert document_engine.audio_target_chunk_size == 1234
 
 
 class TestGeminiModelSeparation:

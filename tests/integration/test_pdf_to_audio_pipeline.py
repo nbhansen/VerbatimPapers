@@ -201,15 +201,6 @@ class TestPDFToAudioPipelineCore:
             assert isinstance(processed_text, str)
             assert len(processed_text) > 0
 
-            # Test sentence splitting
-            sentences_result = text_pipeline.split_into_sentences(processed_text)
-            assert sentences_result.is_success
-
-            sentences = sentences_result.value
-            assert isinstance(sentences, list)
-            assert len(sentences) > 0
-            assert all(isinstance(sentence, str) for sentence in sentences)
-
     @patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider._generate_with_command_line")
     @patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider._ensure_model")
     @patch("pathlib.Path.exists")
@@ -291,39 +282,6 @@ class TestPDFToAudioPipelineCore:
                 raise ValueError("start_page cannot be greater than end_page")
         except ValueError as e:
             assert "start_page cannot be greater than end_page" in str(e)
-
-    def test_chunking_efficiency(self, pipeline_config: SystemConfig) -> None:
-        """Should chunk text efficiently for different sizes."""
-        with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = Services(pipeline_config)
-            text_pipeline = container.text_pipeline
-
-            # Test various text sizes
-            test_cases = [
-                ("Short text", "This is short."),
-                ("Medium text", "This is a medium length text. " * 10),
-                ("Long text", "This is a longer text document. " * 50),
-            ]
-
-            for test_name, text in test_cases:
-                chunks_result = text_pipeline.split_into_sentences(text)
-
-                if chunks_result.is_success:
-                    chunks = chunks_result.value
-                    assert chunks is not None
-
-                    # Should produce reasonable chunk count
-                    assert len(chunks) > 0
-                    # Limit relaxed for long text
-                    if "Long" in test_name:
-                        assert len(chunks) < 100
-                    else:
-                        assert len(chunks) < 20
-
-                    # Chunks should be reasonable size
-                    for chunk in chunks:
-                        assert len(chunk) <= pipeline_config.text_processing.audio_target_chunk_size
-                        assert len(chunk.strip()) > 0  # No empty chunks
 
 
 class TestPDFToAudioFileManagement:

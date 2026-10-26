@@ -296,10 +296,6 @@ class TestRealProviderInteraction:
                         assert isinstance(tts_engine, ITTSEngine)
                         assert hasattr(tts_engine, "synthesize")
                         assert hasattr(tts_engine, "synthesize_async")
-                        assert hasattr(tts_engine, "supports_ssml")
-
-                        # Test interface methods work
-                        assert isinstance(tts_engine.supports_ssml(), bool)
 
     def test_text_pipeline_real_processing(self, integration_config: SystemConfig) -> None:
         """Should create text pipeline that does real text processing."""
@@ -313,7 +309,6 @@ class TestRealProviderInteraction:
 
             # Should have proper interface methods
             assert hasattr(text_pipeline, "clean_text")
-            assert hasattr(text_pipeline, "split_into_sentences")
 
     def test_file_manager_real_operations(self, integration_config: SystemConfig) -> None:
         """Should create file manager that does real file operations."""

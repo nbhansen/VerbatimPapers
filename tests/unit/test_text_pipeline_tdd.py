@@ -39,7 +39,6 @@ class TestTextPipelineBasicFunctionality:
 
         # Check all interface methods are implemented
         assert hasattr(pipeline, "clean_text")
-        assert hasattr(pipeline, "split_into_sentences")
 
 
 class TestTextCleaningTDD:
@@ -243,103 +242,6 @@ class TestNoPauseMarkupInjectionTDD:
         assert result.value == text
 
 
-class TestSentenceSplittingTDD:
-    """TDD tests for sentence splitting functionality."""
-
-    def test_split_into_sentences_basic_splitting(self):
-        """Should split text into individual sentences."""
-        pipeline = TextPipeline()
-
-        text = "First sentence. Second sentence! Third sentence?"
-        result = pipeline.split_into_sentences(text)
-
-        assert result.is_success
-        assert result.value is not None
-        assert len(result.value) == 3
-        assert "First sentence." in result.value
-        assert "Second sentence!" in result.value
-        assert "Third sentence?" in result.value
-
-    def test_split_into_sentences_filters_short_sentences(self):
-        """Should filter out very short sentences."""
-        pipeline = TextPipeline()
-
-        text = "Normal sentence here. Yes. Another normal sentence."
-        result = pipeline.split_into_sentences(text)
-
-        # Should filter out "Yes." as it's too short
-        assert result.is_success
-        assert result.value is not None
-        assert len(result.value) == 2
-        assert "Normal sentence here." in result.value
-        assert "Another normal sentence." in result.value
-        assert "Yes." not in result.value
-
-    def test_split_into_sentences_handles_abbreviations(self):
-        """Should handle common abbreviations correctly."""
-        pipeline = TextPipeline()
-
-        text = "Dr. Smith conducted the study. Mr. Jones reviewed it."
-        result = pipeline.split_into_sentences(text)
-
-        # Should not split on "Dr." or "Mr."
-        assert result.is_success
-        assert result.value is not None
-        assert len(result.value) == 2
-        assert "Dr. Smith conducted the study." in result.value
-        assert "Mr. Jones reviewed it." in result.value
-
-    def test_split_into_sentences_handles_natural_text(self):
-        """Should handle natural text without markup."""
-        pipeline = TextPipeline()
-
-        text = "First sentence with emphasis. Second sentence follows."
-        result = pipeline.split_into_sentences(text)
-
-        # Should split naturally on sentence boundaries
-        assert result.is_success
-        assert result.value is not None
-        assert len(result.value) == 2
-        assert "First sentence with emphasis." in result.value
-        assert "Second sentence follows." in result.value
-
-    def test_split_into_sentences_handles_empty_text(self):
-        """Should handle empty or whitespace text."""
-        pipeline = TextPipeline()
-
-        empty_result = pipeline.split_into_sentences("")
-        assert empty_result.is_success
-        assert empty_result.value == []
-
-        whitespace_result = pipeline.split_into_sentences("   ")
-        assert whitespace_result.is_success
-        assert whitespace_result.value == []
-
-    def test_split_into_sentences_trims_whitespace(self):
-        """Should trim whitespace from individual sentences."""
-        pipeline = TextPipeline()
-
-        text = "  First sentence.   Second sentence.  "
-        result = pipeline.split_into_sentences(text)
-
-        assert result.is_success
-        assert result.value is not None
-        for sentence in result.value:
-            assert sentence == sentence.strip()
-
-    def test_split_into_sentences_handles_numbers_and_decimals(self):
-        """Should not split on decimal numbers."""
-        pipeline = TextPipeline()
-
-        text = "The value is 3.14159 in this calculation. Next sentence follows."
-        result = pipeline.split_into_sentences(text)
-
-        assert result.is_success
-        assert result.value is not None
-        assert len(result.value) == 2
-        assert "3.14159" in result.value[0]
-
-
 class TestTextPipelineIntegrationTDD:
     """TDD tests for TextPipeline component integration."""
 
@@ -360,52 +262,8 @@ class TestTextPipelineIntegrationTDD:
         assert cleaned.value is not None
         assert "algorithm" in cleaned.value
 
-        # Split into sentences
-        sentences = pipeline.split_into_sentences(cleaned.value)
-        assert sentences.is_success
-        assert sentences.value is not None
-        assert len(sentences.value) >= 1
-
         # Cleaning must not introduce markup
-        all_text = " ".join(sentences.value)
-        assert "<emphasis>" not in all_text
-        assert "algorithm" in all_text
-
-    def test_pipeline_consistency_across_operations(self):
-        """Should maintain text consistency through all operations."""
-        pipeline = TextPipeline(enable_cleaning=False)
-
-        original_text = "Test sentence one. Test sentence two."
-
-        # Process through pipeline
-        cleaned = pipeline.clean_text(original_text)
-        assert cleaned.is_success
-        assert cleaned.value is not None
-        sentences = pipeline.split_into_sentences(cleaned.value)
-        assert sentences.is_success
-        assert sentences.value is not None
-
-        # Recombine and strip
-        recombined = " ".join(sentences.value)
-        final = pipeline.split_into_sentences(recombined)
-        assert final.is_success
-        assert final.value is not None
-
-        # Should preserve core content verbatim
-        assert any("Test sentence one" in sentence for sentence in final.value)
-        assert any("Test sentence two" in sentence for sentence in final.value)
-
-    def test_pipeline_handles_large_text_efficiently(self):
-        """Should handle larger text blocks without issues."""
-        pipeline = TextPipeline(enable_cleaning=False)
-
-        # Create larger text block
-        large_text = " ".join([f"Sentence number {i} with content." for i in range(100)])
-
-        sentences = pipeline.split_into_sentences(large_text)
-        assert sentences.is_success
-        assert sentences.value is not None
-        assert len(sentences.value) == 100  # Should split correctly
+        assert "<emphasis>" not in cleaned.value
 
     def test_pipeline_with_all_features_disabled(self):
         """Should work correctly with all enhancement features disabled."""
@@ -428,16 +286,6 @@ class TestTextPipelineIntegrationTDD:
         # Should handle empty strings gracefully
         clean_empty = pipeline.clean_text("")
         assert clean_empty.is_failure  # Empty text should fail for cleaning
-
-        split_empty = pipeline.split_into_sentences("")
-        assert split_empty.is_success
-        assert split_empty.value == []
-
-        # Test split returns proper Result type
-        sentences = pipeline.split_into_sentences("")
-        assert isinstance(sentences, Result)
-        assert isinstance(sentences.value, list)
-        assert len(sentences.value) == 0
 
 
 class TestTextPipelinePromptGenerationTDD:
@@ -481,44 +329,30 @@ class TestTextPipelinePromptGenerationTDD:
         assert 'Do NOT add "..."' in prompt
 
 
-class TestTextPipelineEdgeCasesTDD:
-    """TDD tests for edge cases and error conditions."""
+class TestLargeTextRetry:
+    """When the LLM fails on a whole chunk, the retry splits it with the shared chunker."""
 
-    def test_handles_very_long_sentences(self):
-        """Should handle extremely long sentences."""
-        pipeline = TextPipeline()
+    def test_retry_splits_at_sentences_not_mid_word(self):
+        """Every retried piece is whole sentences, and together they cover the text in order."""
+        sentences = [f"Sentence number {i} has a few words in it." for i in range(500)]
+        raw_text = " ".join(sentences)
+        assert len(raw_text) > 15000
 
-        # Create very long sentence
-        long_sentence = "This is a very long sentence " * 100 + "."
-        result = pipeline.split_into_sentences(long_sentence)
+        pieces: list[str] = []
 
-        # Should still process correctly
+        def generate(prompt: str) -> Result[str]:
+            text = prompt.split("Text:\n", 1)[1]
+            if len(text) == len(raw_text):
+                return Result.failure(Mock())  # The whole chunk fails
+            pieces.append(text)
+            return Result.success(text)
+
+        mock_llm = Mock()
+        mock_llm.generate_content.side_effect = generate
+
+        result = TextPipeline(llm_provider=mock_llm, enable_cleaning=True).clean_text(raw_text)
+
         assert result.is_success
-        assert result.value is not None
-        assert len(result.value) >= 1
-        assert len(result.value[0]) > 1000
-
-    def test_handles_text_with_no_punctuation(self):
-        """Should handle text without sentence-ending punctuation."""
-        pipeline = TextPipeline()
-
-        text = "Text without any punctuation marks just words"
-        result = pipeline.split_into_sentences(text)
-
-        # Should return the whole text as one sentence if over minimum length
-        assert result.is_success
-        assert result.value is not None
-        assert len(result.value) == 1
-        assert result.value[0] == text
-
-    def test_handles_text_with_only_punctuation(self):
-        """Should handle text with only punctuation marks."""
-        pipeline = TextPipeline()
-
-        text = "!!! ??? ."  # Shorter punctuation sequence
-        result = pipeline.split_into_sentences(text)
-
-        # Should filter out as too short (less than 10 chars)
-        assert result.is_success
-        assert result.value is not None
-        assert len(result.value) == 0
+        assert len(pieces) > 1
+        assert all(len(piece) <= 15000 and piece.endswith(".") for piece in pieces)
+        assert " ".join(pieces) == raw_text

@@ -25,8 +25,8 @@ def _pipeline(cleaned: str) -> Mock:
 class TestEmptyTextIsRejected:
     """An image-only PDF extracts as whitespace and cleans down to nothing.
 
-    Without an explicit guard, _split_for_tts("") returns [] and process_document
-    only rejects None, so the run reports success having produced no audio at all.
+    Without an explicit guard the run would report success having produced no
+    audio at all.
     """
 
     def test_empty_cleaned_text_fails(self) -> None:
@@ -55,3 +55,30 @@ class TestEmptyTextIsRejected:
         assert result.value is not None
         assert len(result.value) >= 1
         assert "real content" in " ".join(result.value)
+
+
+class TestChunking:
+    """Pages are packed into sentence-aligned LLM chunks; TTS chunking is left to the audio engine."""
+
+    def test_pages_are_packed_into_sentence_aligned_llm_chunks(self) -> None:
+        """A sentence split across a page break is rejoined, and no chunk exceeds the LLM size."""
+        pipeline = Mock()
+        pipeline.clean_text.side_effect = Result.success
+
+        result = _engine()._process_text_pipeline(
+            ["First sentence here. The second one", "ends on the next page. Third."], pipeline, llm_chunk_size=40
+        )
+
+        sent = [call.args[0] for call in pipeline.clean_text.call_args_list]
+        assert sent == ["First sentence here.", "The second one ends on the next page.", "Third."]
+        assert result.is_success and result.value is not None
+
+    def test_cleaned_text_is_returned_whole(self) -> None:
+        """The audio engine chunks for TTS once, so the cleaned text is handed over unsplit."""
+        pipeline = Mock()
+        pipeline.clean_text.side_effect = Result.success
+
+        result = _engine()._process_text_pipeline(["One. Two.", "Three. Four."], pipeline, llm_chunk_size=10)
+
+        assert result.is_success
+        assert result.value == ["One. Two. Three. Four."]

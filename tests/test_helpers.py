@@ -54,10 +54,6 @@ class FakeTTSEngine(ITTSEngine):
         """Async version for interface compliance."""
         return self.synthesize(text)
 
-    def supports_ssml(self) -> bool:
-        """Return whether this engine supports SSML."""
-        return False
-
     def check_ready(self) -> Result[None]:
         """Ready unless built to fail."""
         if self.should_fail:

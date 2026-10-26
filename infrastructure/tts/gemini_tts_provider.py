@@ -262,11 +262,6 @@ class GeminiTTSProvider(ITTSEngine):
         except (wave.Error, EOFError) as e:
             return Result.failure(tts_engine_error(f"Gemini returned audio in an unsupported format: {e}"))
 
-    def supports_ssml(self) -> bool:
-        """Whether this engine supports SSML."""
-        # Gemini takes a text prompt, not SSML. Delivery is steered by style_prompt instead.
-        return False
-
     def check_ready(self) -> Result[None]:
         """Ready once the client is built; the service itself is only reached on first request."""
         if self._initialization_error:
