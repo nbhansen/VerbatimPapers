@@ -6,10 +6,12 @@ calls or files not available in test environment.
 """
 
 from collections.abc import Generator
+import io
 from pathlib import Path
 import tempfile
 from unittest.mock import Mock, patch
 
+from PIL import Image, ImageDraw, ImageFont
 import pytest
 
 from application.composition import Services
@@ -17,6 +19,7 @@ from application.config.app_configs import FlaskConfig
 from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
+from domain.audio.audio_engine import AudioEngine
 from domain.config.tts_config import PiperConfig, TTSConfig, TTSEngine
 from domain.interfaces import ITTSEngine
 from domain.models import PageRange, ProcessingRequest
@@ -96,16 +99,13 @@ class TestServiceFactoryIntegration:
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
             container = Services(integration_config)
 
-            # Get services that should share dependencies
             audio_engine = container.audio_engine
-            document_engine = container.document_engine
             file_manager = container.file_manager
             assert isinstance(file_manager, FileManager)
+            assert isinstance(audio_engine, AudioEngine)
 
-            # Services should use the same file manager instance (dependency injection)
-            # This tests that the service container is working properly
-            assert hasattr(audio_engine, "_file_manager") or hasattr(audio_engine, "file_manager")
-            assert hasattr(document_engine, "_file_manager") or hasattr(document_engine, "file_manager")
+            # The audio engine writes through the one shared file manager
+            assert audio_engine.file_manager is file_manager
 
             # File manager should have correct configuration
             assert file_manager.upload_folder == integration_config.files.upload_folder
@@ -378,22 +378,13 @@ class TestRealExternalServicesIntegration:
         Path(saved_path).unlink()
 
     def test_real_tesseract_ocr_methods(self, real_tesseract_ocr) -> None:
-        """Should have proper OCR interface methods."""
-        # Verify the OCR provider has expected interface methods
-        assert hasattr(real_tesseract_ocr, "perform_ocr")
-        assert hasattr(real_tesseract_ocr, "get_pdf_info")
-        assert hasattr(real_tesseract_ocr, "validate_range")
+        """Real Tesseract reads text from PNG bytes rendered in memory."""
+        image = Image.new("L", (600, 120), color=255)
+        ImageDraw.Draw(image).text((20, 30), "HELLO WORLD", fill=0, font=ImageFont.load_default(size=48))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
 
-        # Test get_pdf_info with nonexistent file - should return default info
-        # The implementation returns PDFInfo(total_pages=0, ...) on exception
-        info = real_tesseract_ocr.get_pdf_info("/nonexistent/file.pdf")
+        result = real_tesseract_ocr.perform_ocr(buffer.getvalue())
 
-        assert info.total_pages == 0
-        assert info.title == "Unknown"
-
-        # Test validate_range with nonexistent file
-        # The implementation returns error dict on exception
-        result = real_tesseract_ocr.validate_range("/nonexistent/file.pdf", PageRange())
-
-        assert result["valid"] is False
-        assert result["total_pages"] == 0
+        assert result.is_success, result.error
+        assert "HELLO" in (result.value or "").upper()

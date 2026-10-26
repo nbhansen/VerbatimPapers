@@ -89,6 +89,13 @@ def text_extraction_error(details: str) -> ApplicationError:
     )
 
 
+def invalid_page_range_error(details: str) -> ApplicationError:
+    """Create an error for a page range that doesn't fit the document."""
+    return ApplicationError(
+        code=ErrorCode.INVALID_PAGE_RANGE, message="Invalid page range", details=details, retryable=False
+    )
+
+
 def audio_generation_error(details: str | None = None) -> ApplicationError:
     """Create an error for audio generation failures."""
     return ApplicationError(

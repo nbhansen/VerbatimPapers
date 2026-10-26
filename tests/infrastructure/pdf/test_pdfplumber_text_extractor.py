@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, Mock, patch
 
-from domain.models import PdfPageText
+from domain.models import PDFInfo, PdfPageText
 from infrastructure.pdf.pdfplumber_text_extractor import PdfPlumberTextExtractor
 
 
@@ -139,5 +139,51 @@ class TestRenderPageImage:
         mock_open.return_value.__enter__.return_value = mock_pdf
 
         result = PdfPlumberTextExtractor().render_page_image("test.pdf", 0)
+
+        assert result.is_failure
+
+
+class TestGetPdfInfo:
+    """Page count and metadata, with unreadable files reported as failures."""
+
+    @patch("infrastructure.pdf.pdfplumber_text_extractor.pdfplumber.open")
+    def test_reads_page_count_and_metadata(self, mock_open):
+        """Title and author come from the PDF metadata."""
+        pdf = make_mock_pdf(["a", "b", "c"])
+        pdf.metadata = {"Title": "A Paper", "Author": "Someone"}
+        mock_open.return_value.__enter__.return_value = pdf
+
+        result = PdfPlumberTextExtractor().get_pdf_info("doc.pdf")
+
+        assert result.is_success
+        assert result.value == PDFInfo(total_pages=3, title="A Paper", author="Someone")
+
+    @patch("infrastructure.pdf.pdfplumber_text_extractor.pdfplumber.open")
+    def test_missing_metadata_defaults_to_unknown(self, mock_open):
+        """A PDF without metadata still reports its pages."""
+        pdf = make_mock_pdf(["a"])
+        pdf.metadata = None
+        mock_open.return_value.__enter__.return_value = pdf
+
+        result = PdfPlumberTextExtractor().get_pdf_info("doc.pdf")
+
+        assert result.value == PDFInfo(total_pages=1, title="Unknown", author="Unknown")
+
+    def test_corrupt_file_is_a_failure_not_zero_pages(self, tmp_path):
+        """A file that isn't a PDF fails, rather than succeeding with 0 pages."""
+        corrupt = tmp_path / "corrupt.pdf"
+        corrupt.write_bytes(b"%PDF-1.4 this is not really a pdf")
+
+        result = PdfPlumberTextExtractor().get_pdf_info(str(corrupt))
+
+        assert result.is_failure and result.error is not None
+        assert "could not be read as a PDF" in (result.error.details or "")
+
+    @patch("infrastructure.pdf.pdfplumber_text_extractor.pdfplumber.open")
+    def test_zero_pages_is_a_failure(self, mock_open):
+        """A page-less PDF has nothing to convert."""
+        mock_open.return_value.__enter__.return_value = make_mock_pdf([])
+
+        result = PdfPlumberTextExtractor().get_pdf_info("empty.pdf")
 
         assert result.is_failure

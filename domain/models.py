@@ -3,6 +3,8 @@
 
 from dataclasses import dataclass
 
+from .errors import Result, invalid_page_range_error
+
 
 @dataclass(frozen=True)
 class PageRange:
@@ -14,6 +16,27 @@ class PageRange:
     def is_full_document(self) -> bool:
         """Return True if this range covers the entire document."""
         return self.start_page is None and self.end_page is None
+
+    def validate_against_document(self, total_pages: int) -> Result[list[int]]:
+        """Resolve the range to 0-based page indices for a document of total_pages.
+
+        Pages outside the document are an error, not silently clipped.
+        """
+        start = 1 if self.start_page is None else self.start_page
+        end = total_pages if self.end_page is None else self.end_page
+        if start < 1 or end < 1:
+            return Result.failure(invalid_page_range_error("Page numbers start at 1"))
+        if start > total_pages:
+            return Result.failure(
+                invalid_page_range_error(f"Start page {start} is past the end of the document ({total_pages} pages)")
+            )
+        if end > total_pages:
+            return Result.failure(
+                invalid_page_range_error(f"End page {end} is past the end of the document ({total_pages} pages)")
+            )
+        if start > end:
+            return Result.failure(invalid_page_range_error(f"Start page {start} is after end page {end}"))
+        return Result.success(list(range(start - 1, end)))
 
 
 @dataclass(frozen=True)
