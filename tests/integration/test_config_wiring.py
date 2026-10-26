@@ -152,3 +152,39 @@ class TestPlaceholderApiKey:
             config.log_summary()
 
         assert "Text Cleaning: Enabled but inactive (no secrets.google_ai_api_key)" in caplog.text
+
+
+class TestTTSChunkSize:
+    """Gemini's chunks are its read-along highlights, so it uses its own chunk size."""
+
+    def test_gemini_uses_its_own_chunk_size(self, tmp_path: Path) -> None:
+        """tts.gemini.chunk_size, not text_processing.audio_target_chunk_size, sizes Gemini's requests."""
+        config = _load_example(
+            tmp_path,
+            {
+                "tts": {"engine": "gemini", "gemini": {"chunk_size": 800}},
+                "text_processing": {"audio_target_chunk_size": 3000},
+                "secrets": {"google_ai_api_key": "test-key"},
+            },
+        )
+
+        engine = Services(config).audio_engine
+
+        assert isinstance(engine, AudioEngine)
+        assert engine.audio_target_chunk_size == 800
+
+    def test_gemini_default_gives_paragraph_sized_highlights(self, tmp_path: Path) -> None:
+        """A config without the key still gets paragraph-sized Gemini chunks, not Piper's 3000."""
+        config = _load_example(
+            tmp_path,
+            # Replaces the whole tts.gemini section, so chunk_size is absent
+            {
+                "tts": {"engine": "gemini", "gemini": {"voice_name": "Kore"}},
+                "secrets": {"google_ai_api_key": "test-key"},
+            },
+        )
+
+        engine = Services(config).audio_engine
+
+        assert isinstance(engine, AudioEngine)
+        assert engine.audio_target_chunk_size == 1000

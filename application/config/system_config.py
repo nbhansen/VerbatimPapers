@@ -22,7 +22,7 @@ from typing import cast
 
 import yaml
 
-from domain.config.tts_config import GeminiConfig, PiperConfig, TTSConfig, TTSEngine
+from domain.config.tts_config import DEFAULT_GEMINI_CHUNK_SIZE, GeminiConfig, PiperConfig, TTSConfig, TTSEngine
 
 from .app_configs import AdminConfig, FlaskConfig
 from .file_configs import FileCleanupConfig, FileConfig
@@ -213,6 +213,9 @@ class SystemConfig:
                 get_config("tts.gemini.model_name", "gemini-2.5-flash-preview-tts"), "gemini-2.5-flash-preview-tts"
             ),
             style_prompt=cls._parse_optional_string_value(get_config("tts.gemini.style_prompt", None)),
+            chunk_size=cls._parse_int_value(
+                get_config("tts.gemini.chunk_size", DEFAULT_GEMINI_CHUNK_SIZE), DEFAULT_GEMINI_CHUNK_SIZE, 100, 10000
+            ),
         )
 
     @classmethod
