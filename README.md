@@ -186,7 +186,7 @@ uv run python -m pytest                       # All tests
 uv run python -m pytest tests/unit/           # Unit tests only
 uv run python -m pytest tests/integration/    # Integration tests
 uv run python -m pytest -k "test_name"        # Specific test
-uv run pre-commit run --all-files             # Linting + formatting + type checks
+make check                                    # Everything CI runs
 ```
 
 ## Troubleshooting

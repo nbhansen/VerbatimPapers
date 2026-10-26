@@ -88,7 +88,7 @@ Please be respectful and considerate of others when contributing to this project
 
 Run all checks:
 ```bash
-make check       # pre-commit (lint + format + typecheck) + unit tests
+make check       # exactly what CI runs: lint, format check, typecheck, all tests
 make lint        # uv run ruff check . --fix
 make format      # uv run ruff format .
 make typecheck   # uv run mypy .
