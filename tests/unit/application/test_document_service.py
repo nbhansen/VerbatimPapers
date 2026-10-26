@@ -218,3 +218,21 @@ class TestCancellation:
         assert progress.result_data is None
         assert not (Path(config.files.audio_folder) / f"{BASE}_timing.json").exists()
         assert not upload.exists()
+
+
+class TestTimingSaveFailure:
+    """If the read-along timeline can't be written, the result must not offer Read-Along."""
+
+    def test_result_published_without_timeline(self, config: SystemConfig, upload: Path) -> None:
+        """The audio is still delivered; only the read-along view is withdrawn."""
+        Path(config.files.audio_folder).rmdir()  # Nowhere to write the timing file
+        harness = Harness(config, Result.success(_audio_result()))
+
+        harness.run(upload)
+
+        progress = harness.store.get(OPERATION_ID)
+        assert progress is not None and progress.is_complete and not progress.is_error
+        assert progress.result_data is not None
+        published = progress.result_data["audio_result"]
+        assert published.combined_mp3 == f"{BASE}.mp3"
+        assert published.timing_data is None

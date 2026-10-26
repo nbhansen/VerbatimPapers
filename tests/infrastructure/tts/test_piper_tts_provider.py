@@ -5,6 +5,7 @@ These tests validate actual TTS generation, model management, and error handling
 """
 
 from collections.abc import Generator
+import logging
 from pathlib import Path
 import tempfile
 from unittest.mock import Mock, patch
@@ -713,3 +714,36 @@ class TestPiperSegmentProduction:
             except Exception as exc:
                 assert "channels not specified" not in str(exc.__context__)
                 assert "no audio chunks" in str(exc.__context__)
+
+
+class TestUnvoiceableSentences:
+    """A sentence Piper can't voice stays in the document as a silent segment."""
+
+    @staticmethod
+    def _provider(temp_models_dir: str) -> PiperTTSProvider:
+        """Provider whose voice yields nothing for "Unspeakable." and 50 frames for anything else."""
+        with patch.object(PiperTTSProvider, "_check_piper_availability"):
+            provider = PiperTTSProvider.__new__(PiperTTSProvider)
+        provider.config = PiperConfig(download_dir=temp_models_dir)
+        voice = Mock()
+        voice.config.sample_rate = 100
+        voice.synthesize.side_effect = lambda text, _cfg: iter([] if text == "Unspeakable." else [_piper_chunk(50)])
+        provider.voice_instance = voice  # type: ignore[assignment]
+        return provider
+
+    def test_silent_sentence_keeps_its_place_and_text(self, temp_models_dir: str) -> None:
+        """Read-along still shows the text; it simply takes no speaking time."""
+        segments = self._provider(temp_models_dir)._synthesize_with_python_lib("First one. Unspeakable. Last one.")
+
+        assert [s.text for s in segments] == ["First one.", "Unspeakable.", "Last one."]
+        assert [s.duration for s in segments] == [0.5, 0.0, 0.5]
+        assert all(s.matches_format(segments[0]) for s in segments), "AudioAssembler rejects mixed formats"
+
+    def test_silent_sentence_is_reported(self, temp_models_dir: str, caplog: pytest.LogCaptureFixture) -> None:
+        """Dropped audio is logged as a warning, by position and length rather than text."""
+        with caplog.at_level(logging.WARNING, logger="infrastructure.tts.piper_tts_provider"):
+            self._provider(temp_models_dir)._synthesize_with_python_lib("First one. Unspeakable. Last one.")
+
+        assert [r.getMessage() for r in caplog.records] == [
+            "Piper produced no audio for sentence 2 of 3 (12 chars); kept as a silent segment"
+        ]

@@ -4,16 +4,13 @@
 Tests initialization, client management, content generation, async operations, and error handling.
 """
 
+import logging
 from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from domain.errors import ErrorCode
 from infrastructure.llm.gemini_llm_provider import GeminiLLMProvider
-
-
-def assert_logged(log_method: Mock, expected: str) -> None:
-    """Assert a mocked logger method was called with a message rendering to `expected`."""
-    rendered = [c.args[0] % c.args[1:] if len(c.args) > 1 else c.args[0] for c in log_method.call_args_list]
-    assert expected in rendered, f"{expected!r} not logged; got {rendered!r}"
 
 
 class TestGeminiLLMProviderInitialization:
@@ -143,7 +140,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
 
             with (
                 patch("time.time", side_effect=[1000.0, 1001.5]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
+                patch("infrastructure.llm.gemini_llm_provider.logger"),
             ):
                 result = provider.generate_content("test prompt")
 
@@ -157,9 +154,6 @@ class TestGeminiLLMProviderSyncContentGeneration:
             assert call_args.kwargs["contents"] == "test prompt"
 
             # Verify logging
-            assert_logged(mock_logger.info, "LLM API Call: Model=gemini-1.5-flash, prompt='test prompt' (11 chars)")
-            assert_logged(mock_logger.info, "LLM API Success: 1.50s for 'test prompt'")
-            assert_logged(mock_logger.debug, "Response finish_reason: STOP")
 
     def test_generate_content_success_with_simple_text_accessor(self) -> None:
         """Should fallback to simple .text accessor when complex structure fails."""
@@ -178,7 +172,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
 
             with (
                 patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
+                patch("infrastructure.llm.gemini_llm_provider.logger"),
             ):
                 result = provider.generate_content("test prompt")
 
@@ -186,7 +180,6 @@ class TestGeminiLLMProviderSyncContentGeneration:
             assert result.value == "Generated content via text accessor"
 
             # Verify fallback logging
-            assert_logged(mock_logger.debug, "LLM Response: 35 chars returned (via .text accessor)")
 
     def test_generate_content_handles_empty_response(self) -> None:
         """Should handle empty response appropriately."""
@@ -205,7 +198,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
 
             with (
                 patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
+                patch("infrastructure.llm.gemini_llm_provider.logger"),
             ):
                 result = provider.generate_content("test prompt")
 
@@ -215,7 +208,6 @@ class TestGeminiLLMProviderSyncContentGeneration:
             assert result.error.details == "Empty response from LLM"
 
             # Verify debug logging
-            assert_logged(mock_logger.warning, "LLM API: No text in response for 'test prompt'")
 
     def test_generate_content_handles_no_candidates(self) -> None:
         """Should handle response with no candidates."""
@@ -265,7 +257,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
 
             with (
                 patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
+                patch("infrastructure.llm.gemini_llm_provider.logger"),
             ):
                 result = provider.generate_content("test prompt")
 
@@ -274,7 +266,6 @@ class TestGeminiLLMProviderSyncContentGeneration:
             assert result.error.details == "Empty response from LLM"
 
             # Should still log finish_reason
-            assert_logged(mock_logger.debug, "Response finish_reason: LENGTH")
 
     def test_generate_content_handles_api_exception(self) -> None:
         """Should handle exceptions during API call."""
@@ -288,7 +279,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
 
             with (
                 patch("time.time", side_effect=[1000.0, 1001.5]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
+                patch("infrastructure.llm.gemini_llm_provider.logger"),
             ):
                 result = provider.generate_content("test prompt")
 
@@ -298,42 +289,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
             assert result.error.details == "Content generation failed: API quota exceeded"
 
             # Verify error logging
-            assert_logged(mock_logger.error, "LLM API Error (1.50s): API quota exceeded for 'test prompt'")
 
-    def test_generate_content_truncates_long_prompts_in_logs(self) -> None:
-        """Should truncate long prompts in log messages."""
-        with patch("infrastructure.llm.gemini_llm_provider.genai.Client") as mock_client_class:
-            # Create successful mock response
-            mock_response = Mock()
-            mock_response.text = "Generated content"
-            mock_response.candidates = []
-
-            mock_client = Mock()
-            mock_client.models.generate_content.return_value = mock_response
-            mock_client_class.return_value = mock_client
-
-            provider = GeminiLLMProvider(api_key="valid_key", model_name="gemini-1.5-flash")
-
-            long_prompt = "This is a very long prompt " * 10  # > 100 chars
-
-            with (
-                patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
-            ):
-                result = provider.generate_content(long_prompt)
-
-            assert result.is_success
-
-            # Verify prompt truncation in logs
-            expected_preview = long_prompt[:100] + "..."
-            expected_call = (
-                f"LLM API Call: Model=gemini-1.5-flash, prompt='{expected_preview}' ({len(long_prompt)} chars)"
-            )
-            assert_logged(mock_logger.info, expected_call)
-
-    def test_generate_content_handles_response_inspection_error(self) -> None:
-        """Should handle errors during response structure inspection."""
-        with patch("infrastructure.llm.gemini_llm_provider.genai.Client") as mock_client_class:
             # Create mock response that raises exception during inspection
             mock_response = Mock()
             # Mock candidates as a list-like object that raises exception when accessed
@@ -350,7 +306,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
 
             with (
                 patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
+                patch("infrastructure.llm.gemini_llm_provider.logger"),
             ):
                 result = provider.generate_content("test prompt")
 
@@ -358,57 +314,7 @@ class TestGeminiLLMProviderSyncContentGeneration:
             assert result.value == "Fallback content"
 
             # Should log inspection error
-            assert_logged(mock_logger.warning, "Error inspecting response structure: Inspection failed")
 
-    def test_generate_content_logs_response_debugging_info(self) -> None:
-        """Should log response debugging information for empty responses."""
-        with patch("infrastructure.llm.gemini_llm_provider.genai.Client") as mock_client_class:
-            # Create empty mock response with debugging info
-            mock_response = Mock()
-            mock_response.candidates = []
-            mock_response.text = None
-
-            # Mock response type and attributes for debugging
-            type(mock_response).__name__ = "GenerateContentResponse"
-            _dir_attrs_407 = [
-                "candidates",
-                "text",
-                "prompt_feedback",
-                "usage_metadata",
-                "model",
-                "finish_reason",
-                "safety_ratings",
-                "citation_metadata",
-                "content_filter_results",
-                "blocked",
-            ]
-            type(mock_response).__dir__ = lambda self: _dir_attrs_407  # type: ignore[method-assign]
-
-            mock_client = Mock()
-            mock_client.models.generate_content.return_value = mock_response
-            mock_client_class.return_value = mock_client
-
-            provider = GeminiLLMProvider(api_key="valid_key", model_name="gemini-1.5-flash")
-
-            with (
-                patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
-            ):
-                result = provider.generate_content("test prompt")
-
-            assert result.is_failure
-
-            # Verify debugging logs
-            assert_logged(mock_logger.debug, "Response object type: <class 'unittest.mock.Mock'>")
-            expected_attrs = (
-                "['blocked', 'candidates', 'citation_metadata', 'content_filter_results', "
-                "'finish_reason', 'model', 'prompt_feedback', 'safety_ratings', 'text', 'usage_metadata']..."
-            )
-            assert_logged(mock_logger.debug, f"Response attributes: {expected_attrs}")
-
-    def test_generate_content_with_valid_content_but_empty_text(self) -> None:
-        """Should handle response with valid structure but empty text content."""
-        with patch("infrastructure.llm.gemini_llm_provider.genai.Client") as mock_client_class:
             # Create mock response with valid structure but empty text
             mock_response = Mock()
             mock_candidate = Mock()
@@ -508,56 +414,6 @@ class TestGeminiLLMProviderResponseParsing:
             # Should use first part's text
             assert result.value == "First part content"
 
-    def test_response_parsing_handles_attribute_inspection(self) -> None:
-        """Should handle response attribute inspection for debugging."""
-        with patch("infrastructure.llm.gemini_llm_provider.genai.Client") as mock_client_class:
-            # Create mock response that will fail parsing and trigger inspection
-            mock_response = Mock()
-            mock_response.candidates = []
-            mock_response.text = None
-            mock_response.__class__.__name__ = "GenerateContentResponse"
-
-            # Mock dir() to return specific attributes
-            _dir_attrs_736 = [
-                "candidates",
-                "text",
-                "finish_reason",
-                "usage_metadata",
-                "prompt_feedback",
-                "safety_ratings",
-                "citation_metadata",
-                "model_name",
-                "generation_config",
-                "safety_settings",
-            ]
-            type(mock_response).__dir__ = lambda self: _dir_attrs_736  # type: ignore[method-assign]
-
-            mock_client = Mock()
-            mock_client.models.generate_content.return_value = mock_response
-            mock_client_class.return_value = mock_client
-
-            provider = GeminiLLMProvider(api_key="valid_key", model_name="gemini-1.5-flash")
-
-            with (
-                patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
-            ):
-                result = provider.generate_content("test prompt")
-
-            assert result.is_failure
-
-            # Verify attribute inspection logging
-            assert_logged(mock_logger.debug, "Response object type: <class 'unittest.mock.Mock'>")
-            # Should show first 10 attributes (sorted alphabetically by dir())
-            expected_attrs = (
-                "['candidates', 'citation_metadata', 'finish_reason', 'generation_config', "
-                "'model_name', 'prompt_feedback', 'safety_ratings', 'safety_settings', 'text', 'usage_metadata']..."
-            )
-            assert_logged(mock_logger.debug, f"Response attributes: {expected_attrs}")
-
-    def test_response_parsing_multiple_fallback_paths(self) -> None:
-        """Should test multiple fallback paths in response parsing."""
-        with patch("infrastructure.llm.gemini_llm_provider.genai.Client") as mock_client_class:
             # Create mock response that will trigger all parsing paths
             mock_response = Mock()
 
@@ -575,7 +431,7 @@ class TestGeminiLLMProviderResponseParsing:
 
             with (
                 patch("time.time", side_effect=[1000.0, 1001.0]),
-                patch("infrastructure.llm.gemini_llm_provider.logger") as mock_logger,
+                patch("infrastructure.llm.gemini_llm_provider.logger"),
             ):
                 result = provider.generate_content("test prompt")
 
@@ -583,8 +439,48 @@ class TestGeminiLLMProviderResponseParsing:
             assert result.value == "Fallback text content"
 
             # Should log the fallback usage
-            assert_logged(mock_logger.debug, "LLM Response: 21 chars returned (via .text accessor)")
 
 
 class TestGeminiLLMProviderIntegration:
     """Test integration functionality and wrapper methods."""
+
+
+class TestLoggingKeepsDocumentsPrivate:
+    """Prompts are the user's document text; the log (~/.verbatimpapers/app.log) must never hold it."""
+
+    DOCUMENT_TEXT = "Confidential manuscript sentence about zebrafish neurons."
+
+    def _provider(self, outcome: object) -> GeminiLLMProvider:
+        client = Mock()
+        if isinstance(outcome, Exception):
+            client.models.generate_content.side_effect = outcome
+        else:
+            client.models.generate_content.return_value = outcome
+        with patch("infrastructure.llm.gemini_llm_provider.genai.Client", return_value=client):
+            return GeminiLLMProvider(api_key="valid_key", model_name="gemini-text")
+
+    @pytest.mark.parametrize(
+        "outcome",
+        [Mock(candidates=[], text="Cleaned output."), Mock(candidates=[], text=None), Exception("quota exceeded")],
+        ids=["success", "empty-response", "api-error"],
+    )
+    def test_prompt_text_never_logged(self, outcome: object, caplog: pytest.LogCaptureFixture) -> None:
+        """At every level, on every path, only the prompt's length is logged."""
+        provider = self._provider(outcome)
+
+        with caplog.at_level(logging.DEBUG, logger="infrastructure.llm.gemini_llm_provider"):
+            provider.generate_content(f"Clean this:\n{self.DOCUMENT_TEXT}")
+
+        assert caplog.records, "The call should be logged"
+        assert "zebrafish" not in caplog.text
+
+    def test_api_failure_is_logged_as_an_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A failed call leaves an ERROR line with the API's reason, so it can be diagnosed."""
+        provider = self._provider(Exception("quota exceeded"))
+
+        with caplog.at_level(logging.DEBUG, logger="infrastructure.llm.gemini_llm_provider"):
+            result = provider.generate_content(self.DOCUMENT_TEXT)
+
+        assert result.is_failure
+        errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1 and "quota exceeded" in errors[0]

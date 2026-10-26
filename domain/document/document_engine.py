@@ -163,7 +163,6 @@ class DocumentEngine(IDocumentEngine):
                 if is_cancelled():
                     return Result.failure(cancelled_error())
                 logger.debug("Processing LLM chunk %d/%d (%d chars)", i, len(combined_chunks), len(combined_chunk))
-                logger.debug("Combined text preview: '%s...'", combined_chunk[:100])
 
                 logger.debug("Calling text_pipeline.clean_text()...")
                 clean_result = text_pipeline.clean_text(combined_chunk)
@@ -172,7 +171,7 @@ class DocumentEngine(IDocumentEngine):
 
                 cleaned = clean_result.value
                 if cleaned is not None:
-                    logger.debug("Cleaned text (%d chars): '%s...'", len(cleaned), cleaned[:100])
+                    logger.debug("Cleaned text: %d chars", len(cleaned))
                     cleaned_chunks.append(cleaned)
                 else:
                     logger.debug("Cleaning returned None, skipping chunk")

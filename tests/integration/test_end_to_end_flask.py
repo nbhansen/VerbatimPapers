@@ -463,6 +463,26 @@ class TestBackgroundProcessingModel:
         assert response.status_code == 200
         assert "pages" not in response.get_data(as_text=True).lower().split("doc.pdf")[1][:30]
 
+    def test_result_without_timeline_offers_no_read_along(self, test_app: Flask, client: FlaskClient) -> None:
+        """A result whose timeline wasn't saved shows the MP3 but no Read-Along link to a 404."""
+        test_app.config["SERVICES"].progress_store.update(
+            "op-no-timing",
+            "complete",
+            100,
+            "Processing complete!",
+            is_complete=True,
+            result_data={
+                "base_filename": "doc",
+                "original_filename": "doc.pdf",
+                "audio_result": TimedAudioResult(audio_files=["doc.mp3"], combined_mp3="doc.mp3", timing_data=None),
+            },
+        )
+
+        page = client.get("/result/op-no-timing").get_data(as_text=True)
+
+        assert "/audio_outputs/doc.mp3" in page
+        assert "/read-along/" not in page
+
 
 class TestBackgroundCompletionHandler:
     """Tests for the Future done-callback that surfaces escaped exceptions."""
@@ -618,6 +638,25 @@ class TestAdminCleanupEndpoint:
         assert payload["max_age_hours"] == 1.0
         assert not old_file.exists()
         assert new_file.exists()
+
+    @pytest.mark.parametrize(
+        ("method", "path", "target"),
+        [
+            ("POST", "/admin/cleanup", "infrastructure.file.file_manager.FileManager.cleanup_old_files"),
+            ("GET", "/admin/file_stats", "pathlib.Path.iterdir"),
+        ],
+    )
+    def test_failure_does_not_leak_exception_text(
+        self, flask_test_config: SystemConfig, method: str, path: str, target: str
+    ) -> None:
+        """A crash returns a fixed message; paths in the exception stay in the server log."""
+        with _app_with_admin(flask_test_config, AdminConfig(enabled=True)) as admin_client:
+            with patch(target, side_effect=OSError("/home/someone/private/path exploded")):
+                response = admin_client.open(path, method=method)
+
+        assert response.status_code == 500
+        assert "private" not in response.get_data(as_text=True)
+        assert "server log" in response.get_json()["error"]
 
 
 class TestUploadPageRangeValidation:
