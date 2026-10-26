@@ -4,12 +4,14 @@ Tests the complete workflow from PDF upload through audio generation
 using real Flask test client with dependency injection.
 """
 
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 import dataclasses
 from io import BytesIO
+import json
 from pathlib import Path
 import re
+import threading
 from typing import ClassVar
 from unittest.mock import patch
 
@@ -23,7 +25,9 @@ from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
 from domain.config.tts_config import GeminiConfig, PiperConfig, TTSConfig, TTSEngine
-from domain.models import PageRange, TimedAudioResult
+from domain.errors import Result
+from domain.interfaces import ILLMProvider
+from domain.models import PageRange, SynthesizedSegment, TimedAudioResult
 from routes import register_routes
 from tests.test_helpers import FakeTTSEngine
 
@@ -106,159 +110,201 @@ def sample_pdf_content() -> bytes:
 # === Test Cases ===
 
 
+class EchoLLM(ILLMProvider):
+    """Cleans by returning the text unchanged and "rewrites" by tagging it, so tests can see each stage."""
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def generate_content(self, prompt: str) -> Result[str]:
+        """Echo the prompt's text, marked PLAIN when it was a plain-English request."""
+        self.prompts.append(prompt)
+        if "Text to convert:\n" in prompt:
+            return Result.success("PLAIN " + prompt.split("Text to convert:\n", 1)[1])
+        return Result.success(prompt.split("Text:\n", 1)[1])
+
+
+class BlockingTTSEngine(FakeTTSEngine):
+    """Holds every synthesis until released, so a test can act while a conversion is mid-flight."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def synthesize(self, text: str) -> Result[Sequence[SynthesizedSegment]]:
+        """Signal that synthesis started, then wait to be released."""
+        self.started.set()
+        assert self.release.wait(timeout=10), "test never released synthesis"
+        return super().synthesize(text)
+
+
+@contextmanager
+def _running_app(
+    config: SystemConfig, tts: FakeTTSEngine | None = None, llm: ILLMProvider | None = None
+) -> Generator[tuple[Flask, FlaskClient], None, None]:
+    """The real app with only TTS (and the LLM, if given) faked."""
+    if llm is not None:
+        config = dataclasses.replace(config, gemini=GeminiConfig(api_key="test-key"))
+    with (
+        patch("application.composition.PiperTTSProvider", return_value=tts or FakeTTSEngine()),
+        patch("application.composition.GeminiLLMProvider", return_value=llm),
+        patch("application.config.system_config.SystemConfig.from_yaml", return_value=config),
+    ):
+        app = create_app()
+        app.config.update({"TESTING": True})
+        register_routes(app)
+        yield app, app.test_client()
+
+
+def _upload(client: FlaskClient, content: bytes, filename: str, form: dict[str, str] | None = None) -> str:
+    """Post an upload and return its operation id from the processing page."""
+    response = client.post(
+        "/upload",
+        data={"pdf_file": (BytesIO(content), filename), **(form or {})},
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    match = re.search(r'const operationId = "([0-9a-f-]+)"', response.get_data(as_text=True))
+    assert match, "Processing page should carry the operation id"
+    return match.group(1)
+
+
+def _finish(app: Flask) -> None:
+    """Wait for every queued conversion to finish."""
+    app.config["SERVICES"].background_executor.shutdown(wait=True)
+
+
+def _spoken_text(config: SystemConfig, base_filename: str) -> str:
+    """Everything the read-along timeline says was spoken, in order."""
+    timing_path = Path(config.files.audio_folder) / f"{base_filename}_timing.json"
+    timing = json.loads(timing_path.read_text(encoding="utf-8"))
+    return " ".join(segment["text"] for segment in timing["text_segments"])
+
+
+# Distinctive phrases from pages 2 and 3 of testpdf.pdf (page 1 is an image-only cover)
+PAGE_2_PHRASE = "Untangling the participation buzz"
+PAGE_3_PHRASE = "place-making interventions are very often initiated"
+
+
 class TestEndToEndPDFConversion:
     """End-to-end tests for complete PDF conversion workflow."""
 
-    def test_complete_pdf_to_audio_conversion(
-        self,
-        client: FlaskClient,
-        sample_pdf_content: bytes,
-        flask_test_config: SystemConfig,
+    def test_upload_produces_mp3_timeline_and_result_page(
+        self, sample_pdf_content: bytes, flask_test_config: SystemConfig
     ) -> None:
-        """Test complete PDF upload → processing → audio generation workflow.
+        """Upload, convert in the background, then the result page offers the MP3 and the files exist."""
+        config = dataclasses.replace(flask_test_config, text_processing=TextProcessingConfig(enable_cleaning=False))
+        with _running_app(config) as (app, client):
+            operation_id = _upload(client, sample_pdf_content, "paper.pdf")
+            _finish(app)
 
-        This test validates:
-        - PDF file upload and validation
-        - Document processing pipeline
-        - Text extraction and cleaning
-        - Audio generation (TTS faked by the test_app fixture)
-        - File management and cleanup
-        - Response rendering
-        """
-        # Execute the upload request
-        response = client.post(
-            "/upload",
-            data={
-                "pdf_file": (BytesIO(sample_pdf_content), "test_document.pdf"),
-                "page_range_start": "",
-                "page_range_end": "",
-                "enable_plain_english": "false",
-            },
-            content_type="multipart/form-data",
+            progress = client.get(f"/api/progress/{operation_id}").get_json()
+            assert progress["complete"] and not progress["error"], progress
+            result_page = client.get(f"/result/{operation_id}").get_data(as_text=True)
+
+        base = f"paper_{operation_id[:8]}"
+        assert f"/audio_outputs/{base}.mp3" in result_page
+        assert (Path(config.files.audio_folder) / f"{base}.mp3").stat().st_size > 0
+        spoken = _spoken_text(config, base)
+        assert PAGE_2_PHRASE in spoken and PAGE_3_PHRASE in spoken
+        assert list(Path(config.files.upload_folder).iterdir()) == [], "The upload should be deleted"
+
+    def test_page_range_converts_only_those_pages(
+        self, sample_pdf_content: bytes, flask_test_config: SystemConfig
+    ) -> None:
+        """Pages 2-2 speak page 2 and nothing from page 3, and the result page names the range."""
+        config = dataclasses.replace(flask_test_config, text_processing=TextProcessingConfig(enable_cleaning=False))
+        with _running_app(config) as (app, client):
+            operation_id = _upload(
+                client, sample_pdf_content, "paper.pdf", {"use_page_range": "on", "start_page": "2", "end_page": "2"}
+            )
+            _finish(app)
+            result_page = client.get(f"/result/{operation_id}").get_data(as_text=True)
+
+        spoken = _spoken_text(config, f"paper_{operation_id[:8]}")
+        assert PAGE_2_PHRASE in spoken
+        assert PAGE_3_PHRASE not in spoken
+        assert "paper.pdf (pages 2-2)" in result_page
+
+    def test_page_range_past_the_end_fails_with_the_reason(
+        self, sample_pdf_content: bytes, flask_test_config: SystemConfig
+    ) -> None:
+        """Asking for pages the document doesn't have is reported, not silently clipped."""
+        with _running_app(flask_test_config) as (app, client):
+            operation_id = _upload(
+                client, sample_pdf_content, "paper.pdf", {"use_page_range": "on", "start_page": "2", "end_page": "9"}
+            )
+            _finish(app)
+            progress = client.get(f"/api/progress/{operation_id}").get_json()
+
+        assert progress["error"]
+        assert progress["error_message"] == (
+            "Invalid page range for 'paper.pdf': End page 9 is past the end of the document (3 pages)"
         )
 
-        # Validate response
-        assert response.status_code == 200, f"Upload failed with status {response.status_code}"
-        response_text = response.get_data(as_text=True)
+    def test_unreadable_pdf_fails_at_extraction(self, flask_test_config: SystemConfig) -> None:
+        """A file that isn't a PDF fails in the extraction stage, says so, and leaves no upload behind."""
+        with _running_app(flask_test_config) as (app, client):
+            operation_id = _upload(client, b"This is not a PDF file content", "fake.pdf")
+            _finish(app)
 
-        # Check what we actually got back
-        print(f"Response content: {response_text[:500]}...")
+            progress = client.get(f"/api/progress/{operation_id}").get_json()
+            result_page = client.get(f"/result/{operation_id}")
 
-        # Validate file system state
-        audio_dir = Path(flask_test_config.files.audio_folder)
-        assert audio_dir.exists(), "Audio directory should be created"
+        assert progress["error"] and not progress["complete"]
+        assert progress["error_message"].startswith("Failed to extract text from PDF for 'fake.pdf': ")
+        assert result_page.status_code == 500
+        assert "Failed to extract text from PDF" in result_page.get_data(as_text=True)
+        assert list(Path(flask_test_config.files.upload_folder).iterdir()) == []
+        assert list(Path(flask_test_config.files.audio_folder).iterdir()) == []
 
-        # Check what files were actually generated
-        generated_files = list(audio_dir.glob("*"))
-        print(f"Generated files: {[f.name for f in generated_files]}")
+    @pytest.mark.parametrize("plain_english", [True, False])
+    def test_plain_english_option_changes_what_is_spoken(
+        self, sample_pdf_content: bytes, flask_test_config: SystemConfig, plain_english: bool
+    ) -> None:
+        """Ticking "Convert to plain English" sends the cleaned text for rewriting and speaks the rewrite."""
+        llm = EchoLLM()
+        form = {"use_page_range": "on", "start_page": "2", "end_page": "2"}
+        if plain_english:
+            form["enable_plain_english"] = "on"
+        with _running_app(flask_test_config, llm=llm) as (app, client):
+            operation_id = _upload(client, sample_pdf_content, "paper.pdf", form)
+            _finish(app)
 
-        # Also check uploads directory for temporary files that might help debugging
-        upload_dir = Path(flask_test_config.files.upload_folder)
-        if upload_dir.exists():
-            upload_files = list(upload_dir.glob("*"))
-            print(f"Upload files: {[f.name for f in upload_files]}")
+        rewrite_prompts = [p for p in llm.prompts if "Text to convert:\n" in p]
+        spoken = _spoken_text(flask_test_config, f"paper_{operation_id[:8]}")
+        assert PAGE_2_PHRASE in spoken
+        if plain_english:
+            assert rewrite_prompts, "The rewrite prompt should be sent"
+            assert spoken.startswith("PLAIN ")
+        else:
+            assert rewrite_prompts == []
+            assert "PLAIN" not in spoken
 
-        # Test ffmpeg availability and WAV file integrity
-        if generated_files:
-            print("Checking ffmpeg and WAV files...")
-            self._debug_audio_conversion(generated_files, audio_dir)
+    def test_cancel_mid_conversion(self, sample_pdf_content: bytes, flask_test_config: SystemConfig) -> None:
+        """Cancelling while audio is being generated ends as cancelled: no result page, no upload left."""
+        tts = BlockingTTSEngine()
+        config = dataclasses.replace(flask_test_config, text_processing=TextProcessingConfig(enable_cleaning=False))
+        with _running_app(config, tts=tts) as (app, client):
+            operation_id = _upload(
+                client, sample_pdf_content, "paper.pdf", {"use_page_range": "on", "start_page": "2", "end_page": "2"}
+            )
+            assert tts.started.wait(timeout=10), "Synthesis never started"
 
-        # The test succeeds if we got a response (even if it's an error)
-        # This tells us if the integration is working
-        assert len(response_text) > 0, "Should get some response"
+            cancel = client.post(f"/api/cancel/{operation_id}").get_json()
+            tts.release.set()
+            _finish(app)
 
-    def _debug_audio_conversion(self, generated_files: list[Path], audio_dir: Path) -> None:
-        """Debug helper to check WAV files and ffmpeg conversion."""
-        import subprocess
+            progress = client.get(f"/api/progress/{operation_id}").get_json()
+            result_page = client.get(f"/result/{operation_id}")
 
-        # Check if ffmpeg is available
-        try:
-            result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                print("✅ ffmpeg is available")
-            else:
-                print(f"❌ ffmpeg not working: {result.stderr}")
-        except Exception as e:
-            print(f"❌ ffmpeg not found: {e}")
-
-        # Check WAV files
-        for file in generated_files:
-            if file.suffix.lower() in [".wav", ".mp3"]:
-                print(f"🎵 Audio file: {file.name} ({file.stat().st_size} bytes)")
-
-                # Check if it's a valid audio file using ffmpeg
-                try:
-                    result = subprocess.run(
-                        ["ffmpeg", "-i", str(file), "-f", "null", "-"], capture_output=True, text=True, timeout=10
-                    )
-                    if result.returncode == 0:
-                        print(f"✅ {file.name} is valid audio")
-                    else:
-                        print(f"❌ {file.name} has issues: {result.stderr}")
-                except Exception as e:
-                    print(f"❌ Could not validate {file.name}: {e}")
-
-    def test_error_handling_invalid_pdf(self, client: FlaskClient) -> None:
-        """Test error handling for invalid PDF uploads.
-
-        This test validates:
-        - Invalid file rejection
-        - Proper error message display
-        - No file system pollution
-        - Graceful error handling
-        """
-        # Test with non-PDF content
-        invalid_content = b"This is not a PDF file content"
-
-        response = client.post(
-            "/upload",
-            data={
-                "pdf_file": (BytesIO(invalid_content), "fake.pdf"),
-                "page_range_start": "",
-                "page_range_end": "",
-            },
-            content_type="multipart/form-data",
-        )
-
-        # Validate error handling
-        assert response.status_code in [200, 400, 500], "Should handle invalid PDF gracefully"
-        response_text = response.get_data(as_text=True)
-
-        # Should contain error indication
-        error_indicators = ["error", "invalid", "failed", "unable"]
-        assert any(indicator in response_text.lower() for indicator in error_indicators), (
-            "Response should indicate error for invalid PDF"
-        )
-
-    def test_page_range_processing(self, client: FlaskClient, sample_pdf_content: bytes) -> None:
-        """Test partial document processing with page ranges.
-
-        This test validates:
-        - Page range parameter handling
-        - Partial document processing
-        - Page validation logic
-        - Range-specific output
-        """
-        response = client.post(
-            "/upload",
-            data={
-                "pdf_file": (BytesIO(sample_pdf_content), "multipage.pdf"),
-                "page_range_start": "1",
-                "page_range_end": "1",
-                "enable_plain_english": "false",
-            },
-            content_type="multipart/form-data",
-        )
-
-        # Validate response acknowledges page range
-        assert response.status_code == 200, "Page range processing should succeed"
-        response_text = response.get_data(as_text=True)
-
-        # Should indicate partial processing
-        page_indicators = ["page", "1-1", "pages 1"]
-        assert any(indicator in response_text.lower() for indicator in page_indicators), (
-            "Response should indicate page range processing"
-        )
+        assert cancel["cancelled"] is True
+        assert progress["cancelled"] and not progress["error"]
+        assert progress["result_data"] is None
+        assert result_page.status_code == 400
+        assert "cancelled" in result_page.get_data(as_text=True)
+        assert list(Path(config.files.upload_folder).iterdir()) == []
 
     @pytest.mark.parametrize("engine", [TTSEngine.PIPER, TTSEngine.GEMINI])
     def test_read_along_link_loads(

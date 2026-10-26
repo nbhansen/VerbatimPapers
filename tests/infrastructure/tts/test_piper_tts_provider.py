@@ -8,6 +8,7 @@ from collections.abc import Generator
 from pathlib import Path
 import tempfile
 from unittest.mock import Mock, patch
+import urllib.error
 
 import pytest
 
@@ -41,6 +42,17 @@ def _wav_bytes(frames: int = 100, sample_rate: int = 100) -> bytes:
     return buffer.getvalue()
 
 
+@pytest.fixture(autouse=True)
+def no_network() -> Generator[None, None, None]:
+    """Building a provider without model files tries to download the voice; never let that reach the network."""
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise urllib.error.URLError("network disabled in unit tests")
+
+    with patch("urllib.request.urlopen", side_effect=refuse):
+        yield
+
+
 @pytest.fixture
 def temp_models_dir() -> Generator[str, None, None]:
     """Create temporary directory for test models."""
@@ -50,10 +62,12 @@ def temp_models_dir() -> Generator[str, None, None]:
 
 @pytest.fixture
 def basic_piper_config(temp_models_dir: str) -> PiperConfig:
-    """Basic PiperConfig for testing."""
+    """PiperConfig whose (placeholder) model is already in the download dir, so nothing is fetched."""
+    (Path(temp_models_dir) / "en_US-lessac-medium.onnx").touch()
+    (Path(temp_models_dir) / "en_US-lessac-medium.onnx.json").touch()
     return PiperConfig(
         model_name="en_US-lessac-medium",
-        model_path=None,  # Will be auto-downloaded
+        model_path=None,  # Found in download_dir
         config_path=None,
         download_dir=temp_models_dir,
         length_scale=1.0,
