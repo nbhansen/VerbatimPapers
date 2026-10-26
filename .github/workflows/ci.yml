@@ -25,7 +25,9 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@v1.4.3
         with:
           packages: tesseract-ocr ffmpeg espeak-ng
-          version: 1
+          version: 2
+          # Restoring files alone skips update-alternatives, leaving ffmpeg without libblas.so.3
+          execute_install_scripts: true
 
       - name: Install dependencies
         run: uv sync --extra dev
