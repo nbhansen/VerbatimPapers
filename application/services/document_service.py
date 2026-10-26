@@ -57,7 +57,6 @@ class DocumentProcessingService:
         request_form: dict[str, str],
         saved_file_path: str,
         original_filename: str,
-        enable_timing: bool,
     ) -> None:
         """Process a document in the background with progress reporting."""
         try:
@@ -79,9 +78,6 @@ class DocumentProcessingService:
                 return
 
             # 2. Execute processing (20-95%)
-            # Override timing for Gemini TTS (as per original logic in routes.py)
-            enable_timing = enable_timing and self.config.tts.engine.value != "gemini"
-
             text_pipeline = self.text_pipeline
             if enable_plain_english:
                 text_pipeline = self.plain_english_text_pipeline
@@ -91,17 +87,16 @@ class DocumentProcessingService:
 
             request_obj = ProcessingRequest(pdf_path=saved_file_path, output_name=base_filename, page_range=page_range)
             logger.debug(
-                "Processing request: pdf=%s, output=%s, pages=%s-%s, timing=%s",
+                "Processing request: pdf=%s, output=%s, pages=%s-%s",
                 request_obj.pdf_path,
                 request_obj.output_name,
                 page_range.start_page,
                 page_range.end_page,
-                enable_timing,
             )
 
             # Core processing
             processing_result = self.document_engine.process_document(
-                request_obj, self.audio_engine, text_pipeline, enable_timing, self.config.text_processing.llm_chunk_size
+                request_obj, self.audio_engine, text_pipeline, self.config.text_processing.llm_chunk_size
             )
 
             if self.progress_store.is_cancelled(operation_id):
@@ -134,8 +129,8 @@ class DocumentProcessingService:
                 )
                 return
 
-            # Save timing data if needed
-            if enable_timing and audio_result.timing_data:
+            # Every conversion gets a read-along timeline
+            if audio_result.timing_data:
                 self._save_timing_data(base_filename, audio_result.timing_data)
 
             self.progress_store.update(

@@ -271,7 +271,6 @@ class SystemConfig:
     def _parse_performance_config(cls, get_config: ConfigAccessor) -> PerformanceConfig:
         """Parse performance configuration."""
         return PerformanceConfig(
-            enable_async_audio=cls._parse_bool_value(get_config("performance.enable_async_audio", True), True),
             audio_concurrent_chunks=cls._parse_int_value(
                 get_config("performance.audio_concurrent_chunks", 4), 4, 1, 20
             ),
@@ -494,7 +493,6 @@ class SystemConfig:
             f"Log Level: {self.logging_config.level}",
             f"TTS Engine: {self.tts.engine.value}",
             f"Text Cleaning: {'Enabled' if self.text_processing.enable_cleaning else 'Disabled'}",
-            f"Async Audio: {'Enabled' if self.performance.enable_async_audio else 'Disabled'}",
             f"Audio Concurrent Chunks: {self.performance.audio_concurrent_chunks}",
             f"Sentence Gap: {self.audio.sentence_gap}s",
             f"TTS Concurrent Requests: {self.tts.concurrent_requests}",

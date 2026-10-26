@@ -22,7 +22,7 @@ from application.config.app_configs import AdminConfig, FlaskConfig
 from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
-from domain.config.tts_config import PiperConfig, TTSConfig, TTSEngine
+from domain.config.tts_config import GeminiConfig, PiperConfig, TTSConfig, TTSEngine
 from domain.models import PageRange, TimedAudioResult
 from routes import register_routes
 from tests.test_helpers import FakeTTSEngine
@@ -260,18 +260,26 @@ class TestEndToEndPDFConversion:
             "Response should indicate page range processing"
         )
 
-    def test_timed_upload_read_along_link_loads(
-        self, sample_pdf_content: bytes, flask_test_config: SystemConfig
+    @pytest.mark.parametrize("engine", [TTSEngine.PIPER, TTSEngine.GEMINI])
+    def test_read_along_link_loads(
+        self, sample_pdf_content: bytes, flask_test_config: SystemConfig, engine: TTSEngine
     ) -> None:
-        """A timed conversion's result page links to a read-along view that loads.
+        """Every conversion's result page links to a read-along view that loads, for either engine.
 
-        Drives the real flow with only TTS faked: upload with timing, wait for the
-        background job, follow the link on the result page. Guards against the
-        read-along route and the timing engine disagreeing on file names.
+        Drives the real flow with only TTS faked: upload, wait for the background
+        job, follow the link on the result page. Guards against the read-along
+        route and the audio engine disagreeing on file names.
         """
+        config = dataclasses.replace(
+            flask_test_config,
+            tts=TTSConfig(engine=engine, request_delay_seconds=0.0),
+            gemini=GeminiConfig(api_key="test-key") if engine == TTSEngine.GEMINI else None,
+            text_processing=TextProcessingConfig(enable_cleaning=False),
+        )
         with (
             patch("application.composition.PiperTTSProvider", return_value=FakeTTSEngine()),
-            patch("application.config.system_config.SystemConfig.from_yaml", return_value=flask_test_config),
+            patch("application.composition.GeminiTTSProvider", return_value=FakeTTSEngine()),
+            patch("application.config.system_config.SystemConfig.from_yaml", return_value=config),
         ):
             app = create_app()
             app.config.update({"TESTING": True})
@@ -279,7 +287,7 @@ class TestEndToEndPDFConversion:
             client = app.test_client()
 
             response = client.post(
-                "/upload-with-timing",
+                "/upload",
                 data={"pdf_file": (BytesIO(sample_pdf_content), "timing_test.pdf")},
                 content_type="multipart/form-data",
             )
@@ -293,12 +301,12 @@ class TestEndToEndPDFConversion:
             result_page = client.get(f"/result/{match.group(1)}")
             assert result_page.status_code == 200, result_page.get_data(as_text=True)
             link = re.search(r'href="(/read-along/[^"]+)"', result_page.get_data(as_text=True))
-            assert link, "Result page should offer Read-Along Mode for a timed conversion"
+            assert link, "Result page should offer Read-Along Mode"
 
             read_along = client.get(link.group(1))
             assert read_along.status_code == 200, read_along.get_data(as_text=True)
             base_filename = f"timing_test_{match.group(1)[:8]}"
-            assert f"/audio_outputs/{base_filename}_timed.mp3" in read_along.get_data(as_text=True)
+            assert f"/audio_outputs/{base_filename}.mp3" in read_along.get_data(as_text=True)
 
             timing = client.get(f"/api/timing/{base_filename}")
             assert timing.status_code == 200
@@ -320,7 +328,7 @@ class TestEndToEndPDFConversion:
             operation_ids = []
             for _ in range(2):
                 response = client.post(
-                    "/upload-with-timing",
+                    "/upload",
                     data={"pdf_file": (BytesIO(sample_pdf_content), "paper.pdf")},
                     content_type="multipart/form-data",
                 )
@@ -334,9 +342,9 @@ class TestEndToEndPDFConversion:
             mp3_links = []
             for operation_id in operation_ids:
                 page = client.get(f"/result/{operation_id}").get_data(as_text=True)
-                mp3 = f"paper_{operation_id[:8]}_timed.mp3"
+                mp3 = f"paper_{operation_id[:8]}.mp3"
                 assert f"/audio_outputs/{mp3}" in page, page
-                assert 'download="paper_timed.mp3"' in page, "Download name should stay human-readable"
+                assert 'download="paper.mp3"' in page, "Download name should stay human-readable"
                 assert (audio_dir / mp3).exists()
                 assert (audio_dir / f"paper_{operation_id[:8]}_timing.json").exists()
                 mp3_links.append(mp3)

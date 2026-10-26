@@ -4,9 +4,9 @@ from pathlib import Path
 import re
 import tempfile
 
-from domain.audio.timing_engine import ITimingEngine
-from domain.errors import Result, llm_provider_error, tts_engine_error
+from domain.errors import Result, audio_generation_error, llm_provider_error, tts_engine_error
 from domain.interfaces import (
+    IAudioEncoder,
     ILLMProvider,
     ITTSEngine,
 )
@@ -14,8 +14,6 @@ from domain.models import (
     PageRange,
     ProcessingRequest,
     SynthesizedSegment,
-    TimedAudioResult,
-    TimingMetadata,
 )
 
 
@@ -132,42 +130,17 @@ class FakeFileManager:
         self.temp_files.clear()
 
 
-class FakeTimingEngine(ITimingEngine):
-    """Fake timing engine for testing."""
+class FakeAudioEncoder(IAudioEncoder):
+    """Writes the WAV bytes unchanged to the MP3 path, so tests can decode the output."""
 
-    def generate_with_timing(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
-        """Generate fake timed audio result for testing."""
-        from domain.models import TextSegment
+    def __init__(self, should_fail: bool = False):
+        self.should_fail = should_fail
+        self.encoded: dict[str, bytes] = {}
 
-        # Create fake segments
-        segments = []
-        current_time = 0.0
-
-        for i, chunk in enumerate(text_chunks):
-            duration = len(chunk.split()) * 0.5  # Half second per word
-            segment = TextSegment(
-                text=chunk,
-                start_time=current_time,
-                duration=duration,
-                segment_type="sentence",
-                chunk_index=i,
-                sentence_index=i,
-            )
-            segments.append(segment)
-            current_time += duration
-
-        timing_metadata = TimingMetadata(
-            total_duration=current_time, text_segments=segments, audio_files=[f"{output_filename}.wav"]
-        )
-
-        return Result.success(
-            TimedAudioResult(
-                audio_files=[f"{output_filename}.wav"],
-                combined_mp3=f"{output_filename}.mp3",
-                timing_data=timing_metadata,
-            )
-        )
-
-
-# Alias for backward compatibility with tests
-FakeTimingStrategy = FakeTimingEngine
+    def encode_mp3(self, wav: bytes, dest_path: str) -> Result[str]:
+        """Record and write the WAV, or fail if built to."""
+        if self.should_fail:
+            return Result.failure(audio_generation_error("encoding failed"))
+        Path(dest_path).write_bytes(wav)
+        self.encoded[dest_path] = wav
+        return Result.success(dest_path)

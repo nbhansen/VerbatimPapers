@@ -6,7 +6,8 @@ tts:
   # Engine selection: "piper" (local, recommended) or "gemini" (cloud)
   engine: "piper"
 
-  # Rate limiting and concurrency (Gemini only; Piper runs locally)
+  # Gemini request pacing: max requests in flight, and minimum seconds between
+  # request starts. Enforced by the Gemini adapter; Piper runs locally.
   concurrent_requests: 4
   request_delay_seconds: 2.0
 
@@ -74,7 +75,6 @@ audio:
 
 # Performance Tuning
 performance:
-  enable_async_audio: true
   # Number of audio chunks to generate in parallel
   # Higher = faster but more CPU/RAM usage
   audio_concurrent_chunks: 4

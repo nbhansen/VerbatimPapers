@@ -382,7 +382,7 @@ class TestSystemConfigHelperMethodsTDD:
             files=FileConfig(upload_folder="test_uploads", audio_folder="test_audio"),
             cleanup=FileCleanupConfig(enabled=True, max_file_age_hours=48.0, auto_cleanup_interval_hours=12.0),
             text_processing=TextProcessingConfig(enable_cleaning=True),
-            performance=PerformanceConfig(enable_async_audio=True, audio_concurrent_chunks=8),
+            performance=PerformanceConfig(audio_concurrent_chunks=8),
             flask=FlaskConfig(),
             ocr=OCRConfig(),
             llm=LLMConfig(model_name="gemini-1.5-flash"),
@@ -402,7 +402,6 @@ class TestSystemConfigHelperMethodsTDD:
 
             assert "TTS Engine: gemini" in logged_text
             assert "Text Cleaning: Enabled" in logged_text
-            assert "Async Audio: Enabled" in logged_text
             assert "Audio Concurrent Chunks: 8" in logged_text
             assert "Upload Folder: test_uploads" in logged_text
             assert "Audio Folder: test_audio" in logged_text

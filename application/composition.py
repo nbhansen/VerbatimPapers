@@ -15,11 +15,11 @@ from application.services.document_service import DocumentProcessingService
 from application.services.progress_store import ThreadSafeProgressStore
 from domain.audio.audio_assembler import AudioAssembler
 from domain.audio.audio_engine import AudioEngine
-from domain.audio.timing_engine import ITimingEngine, TimingEngine
 from domain.config.tts_config import PiperConfig, TTSEngine
 from domain.document.document_engine import DocumentEngine
 from domain.errors import Result, configuration_error
 from domain.interfaces import (
+    IAudioEncoder,
     IAudioEngine,
     IDocumentEngine,
     IFileManager,
@@ -30,6 +30,7 @@ from domain.interfaces import (
     ITTSEngine,
 )
 from domain.text.text_pipeline import TextPipeline
+from infrastructure.audio.ffmpeg_audio_encoder import FfmpegAudioEncoder
 from infrastructure.file.cleanup_scheduler import FileCleanupScheduler
 from infrastructure.file.file_manager import FileManager
 from infrastructure.llm.gemini_llm_provider import GeminiLLMProvider
@@ -113,30 +114,14 @@ class Services:
 
     @cached_property
     def audio_engine(self) -> IAudioEngine:
-        """Turns text chunks into audio files."""
+        """Turns text chunks into one MP3 plus its read-along timeline."""
         return AudioEngine(
             tts_engine=self.tts_engine,
             file_manager=self.file_manager,
-            timing_engine=self.timing_engine,
+            encoder=self.audio_encoder,
             assembler=self.audio_assembler,
             max_concurrent=self.config.performance.audio_concurrent_chunks,
             audio_target_chunk_size=self.config.text_processing.audio_target_chunk_size,
-            enable_async=self.config.performance.enable_async_audio,
-        )
-
-    @cached_property
-    def timing_engine(self) -> ITimingEngine:
-        """Generates audio with a measured read-along timeline.
-
-        Shares the assembler with the audio engine so the timeline matches the audio.
-        """
-        return TimingEngine(
-            tts_engine=self.tts_engine,
-            file_manager=self.file_manager,
-            assembler=self.audio_assembler,
-            request_interval=self.config.tts.request_delay_seconds
-            if self.config.tts.engine == TTSEngine.GEMINI
-            else 0.0,
         )
 
     @cached_property
@@ -164,6 +149,11 @@ class Services:
     def file_manager(self) -> IFileManager:
         """Upload and output file storage."""
         return FileManager(upload_folder=self.config.files.upload_folder, output_folder=self.config.files.audio_folder)
+
+    @cached_property
+    def audio_encoder(self) -> IAudioEncoder:
+        """MP3 encoding via ffmpeg."""
+        return FfmpegAudioEncoder()
 
     @cached_property
     def ocr_provider(self) -> IOCRProvider:
@@ -200,7 +190,6 @@ class Services:
                 style_prompt=gemini.style_prompt,
                 min_request_interval=self.config.tts.request_delay_seconds,
                 max_concurrent_requests=self.config.tts.concurrent_requests,
-                requests_per_minute=30,  # Default rate limit for Flash TTS
             )
         piper = self.config.piper or PiperConfig()
         return PiperTTSProvider(
