@@ -96,8 +96,7 @@ class FileManager(IFileManager):
         """Deletes a file if it exists."""
         # Security check: ensure path is within managed directories
         abs_path = Path(filepath).resolve()
-        abs_path_str = str(abs_path)
-        if not (abs_path_str.startswith((self.output_folder, self.upload_folder))):
+        if not (abs_path.is_relative_to(self.output_folder) or abs_path.is_relative_to(self.upload_folder)):
             logger.error("Attempted file deletion outside managed directories: %s", filepath)
             raise ValueError(f"Cannot delete file outside managed directories: {filepath}")
 

@@ -84,7 +84,9 @@ performance:
 
 # Web Server Settings
 app:
-  debug: true
+  # Development only: enables auto-reload and the interactive Werkzeug debugger,
+  # which allows arbitrary code execution. Never enable on a reachable host.
+  debug: false
   host: "127.0.0.1"
   port: 5000
 

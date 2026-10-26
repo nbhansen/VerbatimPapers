@@ -366,6 +366,19 @@ class TestFileManagerDeletion:
         # File should still exist
         assert outside_file.exists()
 
+    def test_delete_file_rejects_sibling_directory_sharing_prefix(self, temp_dir):
+        """A sibling like outputs_evil/ shares the string prefix but is not managed."""
+        manager = FileManager(str(temp_dir / "uploads"), str(temp_dir / "outputs"))
+        sibling = temp_dir / "outputs_evil"
+        sibling.mkdir()
+        victim = sibling / "victim.txt"
+        victim.write_text("keep me")
+
+        with pytest.raises(ValueError, match="Cannot delete file outside managed directories"):
+            manager.delete_file(str(victim))
+
+        assert victim.exists()
+
     def test_delete_file_prevents_path_traversal_attacks(self, temp_dir):
         """Should prevent path traversal attacks in file deletion."""
         manager = FileManager(str(temp_dir / "uploads"), str(temp_dir / "outputs"))

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 class FlaskConfig:
     """Flask application configuration."""
 
-    debug: bool = True
+    debug: bool = False  # True enables the Werkzeug debugger (remote code execution if exposed)
     host: str = "127.0.0.1"  # Secure default: localhost only
     port: int = 5000
 

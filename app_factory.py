@@ -11,7 +11,8 @@ import logging
 import os
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, render_template
+from werkzeug.exceptions import HTTPException
 
 from application.config.logging_config import setup_logging
 from application.config.system_config import SystemConfig
@@ -123,14 +124,15 @@ def register_error_handlers(app: Flask, context: ApplicationContext) -> None:
     @app.errorhandler(413)
     def too_large(e: object) -> tuple[str, int]:
         max_size = context.config.files.max_file_size_mb
-        return f"File is too large. Maximum file size is {max_size}MB.", 413
+        return render_template(
+            "error.html", error_message=f"File is too large. Maximum file size is {max_size}MB."
+        ), 413
 
     @app.errorhandler(Exception)
-    def handle_exception(e: Exception) -> tuple[str, int]:
-        import traceback
-
-        logger.error("Unhandled exception occurred")
-        logger.error("Full traceback: %s", traceback.format_exc())
-        logger.error("Exception type: %s", type(e).__name__)
-        logger.error("Exception message: %s", str(e))
-        return f"An error occurred: {e!s}", 500
+    def handle_exception(e: Exception) -> HTTPException | tuple[str, int]:
+        # 404s, 405s etc. keep their own status and Werkzeug's escaped page
+        if isinstance(e, HTTPException):
+            return e
+        # Exception text can carry paths or user input; it goes to the log only
+        logger.exception("Unhandled exception occurred")
+        return render_template("error.html", error_message="An unexpected error occurred. Please try again."), 500

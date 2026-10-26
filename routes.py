@@ -37,6 +37,11 @@ from utils import (
 logger = logging.getLogger(__name__)
 
 
+def error_page(message: str, status: int) -> tuple[str, int]:
+    """Render a user-facing error page; Jinja autoescapes the message."""
+    return render_template("error.html", error_message=message), status
+
+
 def background_process_document(
     operation_id: str,
     request_form: dict[str, str],
@@ -158,14 +163,14 @@ def register_routes(app: Flask) -> None:
         """
         timing_path = Path(app.config["AUDIO_FOLDER"]) / timing_json_filename(base_filename)
         if not timing_path.exists():
-            return "Timing data not found. This file was not processed with read-along support.", 404
+            return error_page("Timing data not found. This file was not processed with read-along support.", 404)
 
         try:
             with timing_path.open(encoding="utf-8") as f:
                 timing_json = json.load(f)
         except (OSError, ValueError) as e:
             logger.error("Error loading timing data: %s", str(e))
-            return "Failed to load timing data", 500
+            return error_page("Failed to load timing data.", 500)
 
         audio_files = timing_json.get("audio_files") or []
         audio_filename = audio_files[0] if audio_files else None
@@ -174,7 +179,7 @@ def register_routes(app: Flask) -> None:
             or Path(audio_filename).name != audio_filename
             or not (Path(app.config["AUDIO_FOLDER"]) / audio_filename).exists()
         ):
-            return "Audio file not found.", 404
+            return error_page("Audio file not found.", 404)
 
         return render_template(
             "read_along.html",
@@ -241,19 +246,20 @@ def register_routes(app: Flask) -> None:
         """Show results for a completed operation."""
         progress = get_progress_store().get(operation_id)
         if progress is None:
-            return "Operation not found", 404
+            return error_page("Operation not found.", 404)
 
-        if not progress.is_complete:
-            return "Operation not yet complete", 400
-
+        # Failed operations are never marked complete, so check for errors first
         if progress.is_error or progress.error_message:
-            return f"Processing failed: {progress.error_message or 'Unknown error'}", 500
+            return error_page(f"Processing failed: {progress.error_message or 'Unknown error'}", 500)
 
         if progress.cancelled:
-            return "Operation was cancelled", 400
+            return error_page("Operation was cancelled.", 400)
+
+        if not progress.is_complete:
+            return error_page("Operation not yet complete.", 400)
 
         if not progress.result_data:
-            return "No result data available", 500
+            return error_page("No result data available.", 500)
 
         # Extract result data
         result_data = progress.result_data
@@ -262,7 +268,7 @@ def register_routes(app: Flask) -> None:
         audio_result = result_data.get("audio_result")
 
         if not audio_result:
-            return "No processing result available", 500
+            return error_page("No processing result available.", 500)
 
         # Page range travels through result_data so the result page reflects the selection
         page_range = result_data.get("page_range") or PageRange(start_page=None, end_page=None)
@@ -359,14 +365,14 @@ def register_routes(app: Flask) -> None:
         """
         file, error = _validate_upload_request()
         if error or file is None:
-            return error or "No file provided"
+            return error_page(error or "No file provided.", 400)
 
         # Reject bad page ranges before the file is saved and queued; the same
         # parse in the background thread would surface as a generic failure.
         try:
             parse_page_range_from_form(request.form)
         except ValueError as e:
-            return f"Invalid page range: {e}", 400
+            return error_page(f"Invalid page range: {e}", 400)
 
         # Generate unique operation ID
         operation_id = str(uuid.uuid4())
@@ -380,7 +386,7 @@ def register_routes(app: Flask) -> None:
         # Save file first before passing to thread (FileStorage closes after request)
         config = get_app_config()
         if not file.filename:
-            return "No filename provided", 400
+            return error_page("No filename provided.", 400)
         # secure_filename can strip a hostile name down to nothing
         original_filename = secure_filename(file.filename) or "upload.pdf"
         saved_path = Path(config.files.upload_folder) / f"{operation_id}_{original_filename}"
@@ -423,7 +429,10 @@ def register_routes(app: Flask) -> None:
         """Upload WITH timing data for read-along functionality."""
         config = get_app_config()
         if config.tts.engine.value == "gemini":
-            return "Read-along mode is not available with Gemini TTS. Please use regular upload or switch to Piper TTS."
+            return error_page(
+                "Read-along mode is not available with Gemini TTS. Please use regular upload or switch to Piper TTS.",
+                400,
+            )
         return _handle_upload(enable_timing=True)
 
     def _require_admin() -> tuple[Response, int] | None:
