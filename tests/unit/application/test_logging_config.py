@@ -24,7 +24,10 @@ def restore_root_logger() -> Iterator[None]:
 
 @pytest.mark.usefixtures("restore_root_logger")
 class TestSetupLogging:
+    """setup_logging configures the root logger for all module loggers."""
+
     def test_module_logger_reaches_file_at_configured_level(self, tmp_path: Path) -> None:
+        """A plain __name__ logger in domain/ or infrastructure/ is written out."""
         log_file = tmp_path / "app.log"
         setup_logging(LoggingConfig(level="DEBUG", file_path=str(log_file), console_output=False))
 
@@ -36,6 +39,7 @@ class TestSetupLogging:
         assert "adapter info line" in content
 
     def test_records_below_configured_level_are_dropped(self, tmp_path: Path) -> None:
+        """The configured level applies to module loggers too."""
         log_file = tmp_path / "app.log"
         setup_logging(LoggingConfig(level="WARNING", file_path=str(log_file), console_output=False))
 
@@ -44,6 +48,7 @@ class TestSetupLogging:
         assert "too quiet" not in log_file.read_text(encoding="utf-8")
 
     def test_reconfiguring_replaces_own_handlers_and_keeps_foreign_ones(self, tmp_path: Path) -> None:
+        """Repeated setup does not stack handlers or remove ones it did not install."""
         root = logging.getLogger()
         foreign = logging.NullHandler()
         root.addHandler(foreign)
