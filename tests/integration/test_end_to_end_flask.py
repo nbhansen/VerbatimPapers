@@ -742,3 +742,33 @@ class TestStartup:
             app = create_app()
 
         assert "tts_engine" not in vars(app.config["SERVICES"])
+
+
+class TestUploadPage:
+    """The upload form only offers what this install can actually do."""
+
+    def test_plain_english_disabled_without_api_key(self, flask_test_config: SystemConfig) -> None:
+        """Without a key the option can't work, so it's disabled and the page says why."""
+        with _running_app(flask_test_config) as (_, client):
+            page = client.get("/").get_data(as_text=True)
+
+        assert re.search(r'<input type="checkbox" id="enable_plain_english"[^>]*\bdisabled\b', page)
+        assert 'id="llm_unavailable"' in page
+        assert "secrets.google_ai_api_key" in page
+
+    def test_plain_english_offered_with_api_key(self, flask_test_config: SystemConfig) -> None:
+        """With a key the option is live and no warning is shown."""
+        with _running_app(flask_test_config, llm=EchoLLM()) as (_, client):
+            page = client.get("/").get_data(as_text=True)
+
+        assert not re.search(r'<input type="checkbox" id="enable_plain_english"[^>]*\bdisabled\b', page)
+        assert 'id="llm_unavailable"' not in page
+
+    def test_size_limit_comes_from_config(self, flask_test_config: SystemConfig) -> None:
+        """The browser-side check uses files.max_file_size_mb, the same limit the server enforces."""
+        with _running_app(flask_test_config) as (app, client):
+            page = client.get("/").get_data(as_text=True)
+
+        assert flask_test_config.files.max_file_size_mb == 10
+        assert "const maxSizeMb = 10;" in page
+        assert app.config["MAX_CONTENT_LENGTH"] == 10 * 1024 * 1024
