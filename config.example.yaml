@@ -6,7 +6,7 @@ tts:
   # Engine selection: "piper" (local, recommended) or "gemini" (cloud)
   engine: "piper"
 
-  # Rate limiting and concurrency
+  # Rate limiting and concurrency (Gemini only; Piper runs locally)
   concurrent_requests: 4
   request_delay_seconds: 2.0
 
@@ -18,9 +18,6 @@ tts:
 
     # Directory where voice models are downloaded and stored
     download_dir: "piper_models"
-
-    # GPU acceleration (not yet implemented, has no effect)
-    use_gpu: false
 
     # Speech speed (1.0 = normal, 0.8 = slower, 1.2 = faster)
     length_scale: 1.0
@@ -41,8 +38,8 @@ tts:
   # Gemini TTS Settings (Cloud)
   gemini:
     voice_name: "Kore"
-    model_name: "gemini-2.5-flash"
-    max_retries: 3
+    # Speech output needs a TTS model variant (name ends in -tts)
+    model_name: "gemini-2.5-flash-preview-tts"
 
     # Delivery direction, prefixed to the text. Gemini takes tone and pacing as
     # natural language rather than SSML, so this is its only prosody control.
@@ -55,9 +52,6 @@ text_processing:
   # extraction. Speech rhythm comes from correct punctuation, so this matters
   # for cadence as well as accuracy.
   enable_text_cleaning: true
-
-  # Convert academic text to plain English (optional)
-  enable_plain_english_conversion: false
 
   # Chunk sizes for processing
   llm_chunk_size: 50000
@@ -107,12 +101,14 @@ secrets:
 
 # OCR Settings (Tesseract)
 ocr:
+  # Resolution pages are rendered at before OCR (150-600)
   dpi: 300
+  # Tesseract language code(s), e.g. "dan" or "eng+dan" (language pack must be installed)
   language: "eng"
-  threshold: 180
 
 # LLM Provider Settings (for text cleaning)
 llm:
   model_name: "gemini-2.5-flash"
+  # Parallel cleaning requests and minimum seconds between them
   concurrent_requests: 3
   request_delay_seconds: 0.5

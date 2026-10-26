@@ -104,10 +104,8 @@ tts:
 
 ### Environment Variables
 
-All configuration lives in `config.yaml`; only a few environment variables are read:
+All configuration lives in `config.yaml` (see `config.example.yaml` for every supported key; unknown keys are logged as warnings at startup). One environment variable is read:
 
-- `GEMINI_API_KEY` — Google AI API key (alternative to `secrets.google_ai_api_key` in config.yaml)
-- `FLASK_DEBUG` — Override `app.debug`
 - `PROJECT_ROOT` — Override the project root used to resolve relative paths
 
 ## Architecture

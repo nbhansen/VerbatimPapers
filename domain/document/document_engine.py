@@ -40,12 +40,14 @@ class DocumentEngine(IDocumentEngine):
         pdf_extractor: IPdfTextExtractor,
         min_text_threshold: int = 100,
         audio_target_chunk_size: int = 4000,
+        ocr_resolution: int = 300,
     ):
         self.ocr_provider = ocr_provider
         self.file_manager = file_manager
         self.pdf_extractor = pdf_extractor
         self.min_text_threshold = min_text_threshold
         self.audio_target_chunk_size = audio_target_chunk_size
+        self.ocr_resolution = ocr_resolution  # DPI at which pages are rendered for OCR
         logger.debug("DocumentEngine initialized with Result[T] pattern")
 
     def get_pdf_info(self, pdf_path: str) -> Result[PDFInfo]:
@@ -263,7 +265,7 @@ class DocumentEngine(IDocumentEngine):
         temp_image_path = None
 
         try:
-            image_result = self.pdf_extractor.render_page_image(pdf_path, page_index)
+            image_result = self.pdf_extractor.render_page_image(pdf_path, page_index, self.ocr_resolution)
             if image_result.is_failure or image_result.value is None:
                 logger.warning("Page image rendering failed: %s", image_result.error)
                 return ""
