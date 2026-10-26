@@ -36,6 +36,9 @@ YAMLValue = str | int | float | bool | list[str] | dict[str, object] | None
 # Type for config accessor function
 ConfigAccessor = Callable[[str, YAMLValue | None], YAMLValue]
 
+# The value config.example.yaml ships with; a config still carrying it has no key
+PLACEHOLDER_API_KEY = "YOUR_GOOGLE_AI_API_KEY"
+
 
 @dataclass(frozen=True)
 class SystemConfig:
@@ -201,8 +204,10 @@ class SystemConfig:
     @classmethod
     def _parse_gemini_config(cls, get_config: ConfigAccessor) -> GeminiConfig:
         """Parse Gemini-specific configuration."""
+        api_key = cls._parse_optional_string_value(get_config("secrets.google_ai_api_key", None))
         return GeminiConfig(
-            api_key=cls._parse_optional_string_value(get_config("secrets.google_ai_api_key", None)),
+            # Treated as missing, so features needing a key are off rather than failing on every call
+            api_key=None if api_key == PLACEHOLDER_API_KEY else api_key,
             voice_name=cls._parse_string_value(get_config("tts.gemini.voice_name", "Kore"), "Kore"),
             model_name=cls._parse_string_value(
                 get_config("tts.gemini.model_name", "gemini-2.5-flash-preview-tts"), "gemini-2.5-flash-preview-tts"
@@ -336,13 +341,23 @@ class SystemConfig:
             model_name=cls._parse_string_value(get_config("llm.model_name", "gemini-2.5-flash"), "gemini-2.5-flash"),
         )
 
+    @property
+    def has_api_key(self) -> bool:
+        """Whether a Google AI API key is configured, which LLM cleaning and plain English need."""
+        return self.gemini is not None and bool(self.gemini.api_key)
+
+    def _text_cleaning_status(self) -> str:
+        if not self.text_processing.enable_cleaning:
+            return "Disabled"
+        return "Enabled" if self.has_api_key else "Enabled but inactive (no secrets.google_ai_api_key)"
+
     def validate(self) -> None:
         """Validate configuration and fail fast with clear error messages."""
         # Engine-specific validation
         if self.tts.engine == TTSEngine.GEMINI:
             if self.gemini and not self.gemini.api_key:
                 raise ValueError("GOOGLE_AI_API_KEY is required when TTS_ENGINE=gemini")
-            if self.gemini and self.gemini.api_key == "YOUR_GOOGLE_AI_API_KEY":
+            if self.gemini and self.gemini.api_key == PLACEHOLDER_API_KEY:
                 raise ValueError("Please set a valid GOOGLE_AI_API_KEY (not the placeholder value)")
 
         if self.tts.engine == TTSEngine.PIPER and self.piper and not self.piper.model_name:
@@ -492,7 +507,7 @@ class SystemConfig:
             "=" * 50,
             f"Log Level: {self.logging_config.level}",
             f"TTS Engine: {self.tts.engine.value}",
-            f"Text Cleaning: {'Enabled' if self.text_processing.enable_cleaning else 'Disabled'}",
+            f"Text Cleaning: {self._text_cleaning_status()}",
             f"Audio Concurrent Chunks: {self.performance.audio_concurrent_chunks}",
             f"Sentence Gap: {self.audio.sentence_gap}s",
             f"TTS Concurrent Requests: {self.tts.concurrent_requests}",

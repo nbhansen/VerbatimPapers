@@ -125,3 +125,30 @@ class TestGeminiModelSeparation:
         assert tts.model_name.endswith("-tts")
         assert not llm.model_name.endswith("-tts")
         assert llm.model_name == "gemini-2.5-flash"
+
+
+class TestPlaceholderApiKey:
+    """config.example.yaml ships a placeholder key; copying it unchanged means no key, not a broken one."""
+
+    def test_placeholder_key_means_no_llm(self, tmp_path: Path) -> None:
+        """With the placeholder, cleaning and plain English are off instead of failing on every call."""
+        config = _load_example(tmp_path)
+
+        assert not config.has_api_key
+        assert Services(config).llm_provider is None
+
+    def test_real_key_builds_the_llm(self, tmp_path: Path) -> None:
+        """Any other key builds the text-cleaning client."""
+        config = _load_example(tmp_path, {"secrets": {"google_ai_api_key": "test-key"}})
+
+        assert config.has_api_key
+        assert isinstance(Services(config).llm_provider, GeminiLLMProvider)
+
+    def test_startup_log_says_cleaning_is_inactive(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Cleaning enabled without a key is reported at startup, not discovered from flat-sounding audio."""
+        config = _load_example(tmp_path)
+
+        with caplog.at_level(logging.INFO):
+            config.log_summary()
+
+        assert "Text Cleaning: Enabled but inactive (no secrets.google_ai_api_key)" in caplog.text

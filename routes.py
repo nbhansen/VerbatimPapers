@@ -119,7 +119,12 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/")
     def index() -> str:
-        return render_template("index.html")
+        config = get_app_config()
+        return render_template(
+            "index.html",
+            llm_available=get_services().llm_provider is not None,
+            max_file_size_mb=config.files.max_file_size_mb,
+        )
 
     @app.route("/favicon.ico")
     def favicon() -> tuple[str, int]:

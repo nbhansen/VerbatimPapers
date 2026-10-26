@@ -40,12 +40,18 @@
             <div class="error-message" id="page_error"></div>
 
             <div class="checkbox-group">
-                <input type="checkbox" id="enable_plain_english" name="enable_plain_english">
+                <input type="checkbox" id="enable_plain_english" name="enable_plain_english"{% if not llm_available %} disabled{% endif %}>
                 <label for="enable_plain_english" class="checkbox-label">
                     <i class="fas fa-language"></i> Convert to plain English
                     <span class="feature-description">(Simplifies academic text for general audiences)</span>
                 </label>
             </div>
+            {% if not llm_available %}
+            <div class="help-text" id="llm_unavailable">
+                Plain English conversion and LLM text cleaning need a Google AI API key
+                (<code>secrets.google_ai_api_key</code> in config.yaml). Without one, text gets basic cleanup only.
+            </div>
+            {% endif %}
 
             <div class="help-text">
                 <strong>Usage Tips:</strong><br>
@@ -145,9 +151,9 @@
             const file = this.fileInput.files[0];
 
             if (file) {
-                const maxSize = 100 * 1024 * 1024; // 100MB
-                if (file.size > maxSize) {
-                    alert('File too large. Maximum size is 100MB.');
+                const maxSizeMb = {{ max_file_size_mb | tojson }};
+                if (file.size > maxSizeMb * 1024 * 1024) {
+                    alert(`File too large. Maximum size is ${maxSizeMb}MB.`);
                     this.fileInput.value = '';
                     return;
                 }
