@@ -12,6 +12,7 @@ from google.genai import types
 
 from domain.errors import Result, llm_provider_error
 from domain.interfaces import ILLMProvider
+from infrastructure.gemini_http import default_http_options
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +20,10 @@ logger = logging.getLogger(__name__)
 class GeminiLLMProvider(ILLMProvider):
     """Gemini LLM provider for text processing and content generation."""
 
-    def __init__(self, api_key: str, model_name: str):
+    def __init__(self, api_key: str, model_name: str, http_options: types.HttpOptions | None = None):
         self.api_key = api_key
         self.model_name = model_name
+        self.http_options = http_options or default_http_options()
         self._initialization_error: str | None = None  # Deferred error handling
         self.client = self._init_client()
 
@@ -32,7 +34,7 @@ class GeminiLLMProvider(ILLMProvider):
             return None
 
         try:
-            return genai.Client(api_key=self.api_key)
+            return genai.Client(api_key=self.api_key, http_options=self.http_options)
         except Exception as e:
             self._initialization_error = f"Failed to initialize Gemini LLM client: {e}"
             logger.error(self._initialization_error)

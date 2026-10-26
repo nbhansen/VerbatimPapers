@@ -30,7 +30,7 @@ class TestGeminiLLMProviderInitialization:
             assert provider.api_key == "valid_key"
             assert provider.model_name == "gemini-1.5-flash"
             assert provider.client == mock_client
-            mock_client_class.assert_called_once_with(api_key="valid_key")
+            assert mock_client_class.call_args.kwargs["api_key"] == "valid_key"
 
     def test_init_with_placeholder_api_key_returns_none_client(self) -> None:
         """Should not create client with placeholder API key."""
@@ -81,7 +81,7 @@ class TestGeminiLLMProviderClientManagement:
             result = provider._init_client()
 
             assert result == mock_client
-            mock_client_class.assert_called_with(api_key="valid_key")
+            assert mock_client_class.call_args.kwargs["api_key"] == "valid_key"
 
     def test_init_client_with_invalid_key_returns_none(self) -> None:
         """Should return None with invalid API key."""
