@@ -61,7 +61,7 @@ class GeminiTTSProvider(ITTSEngine):
         self.client: genai.Client | None = None
         try:
             self.client = genai.Client(api_key=self.api_key)
-            logger.info(f"Gemini TTS initialized with model={model_name}, voice={voice_name}")
+            logger.info("Gemini TTS initialized with model=%s, voice=%s", model_name, voice_name)
         except Exception as e:
             self._initialization_error = f"Failed to initialize Gemini Client: {e}"
             logger.error(self._initialization_error)

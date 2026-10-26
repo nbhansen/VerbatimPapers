@@ -52,7 +52,7 @@ class DocumentProcessingService:
     ) -> None:
         """Process a document in the background with progress reporting."""
         try:
-            logger.info(f"Starting document processing for operation {operation_id}, file: {original_filename}")
+            logger.info("Starting document processing for operation %s, file: %s", operation_id, original_filename)
             self.progress_store.update(operation_id, "starting", 5, "Initializing document processing...")
 
             if self.progress_store.is_cancelled(operation_id):
@@ -154,7 +154,7 @@ class DocumentProcessingService:
             )
 
         except Exception as e:
-            logger.exception(f"Unexpected error in background processing: {e}")
+            logger.exception("Unexpected error in background processing: %s", e)
             enhanced_error = get_processing_stage_error("processing", e, original_filename)
             self.progress_store.update(
                 operation_id,
@@ -193,7 +193,7 @@ class DocumentProcessingService:
             with timing_path.open("w", encoding="utf-8") as f:
                 json.dump(timing_json, f, indent=2, ensure_ascii=False)
 
-            logger.info(f"Saved timing data: {timing_filename}")
+            logger.info("Saved timing data: %s", timing_filename)
 
             # Register with file manager for cleanup if needed
             with contextlib.suppress(Exception):
@@ -201,7 +201,7 @@ class DocumentProcessingService:
                 if hasattr(file_manager, "schedule_cleanup"):
                     file_manager.schedule_cleanup(timing_filename, 2.0)
         except Exception as e:
-            logger.error(f"Failed to save timing data: {e}")
+            logger.error("Failed to save timing data: %s", e)
 
     @staticmethod
     def _cleanup_upload(saved_file_path: str) -> None:

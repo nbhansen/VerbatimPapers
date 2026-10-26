@@ -67,7 +67,7 @@ class GeminiLLMProvider(ILLMProvider):
             return Result.failure(llm_provider_error("Client not available"))
 
         prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
-        logger.info(f"LLM API Call: Model={self.model_name}, prompt='{prompt_preview}' ({len(prompt)} chars)")
+        logger.info("LLM API Call: Model=%s, prompt='%s' (%s chars)", self.model_name, prompt_preview, len(prompt))
 
         try:
             start_time = time.time()
@@ -82,7 +82,7 @@ class GeminiLLMProvider(ILLMProvider):
             )
 
             api_time = time.time() - start_time
-            logger.info(f"LLM API Success: {api_time:.2f}s for '{prompt_preview}'")
+            logger.info("LLM API Success: %.2fs for '%s'", api_time, prompt_preview)
 
             # Inspect response structure for debugging
             if response:
@@ -91,7 +91,7 @@ class GeminiLLMProvider(ILLMProvider):
                     if hasattr(response, "candidates") and response.candidates:
                         candidate = response.candidates[0]
                         finish_reason = getattr(candidate, "finish_reason", "UNKNOWN")
-                        logger.debug(f"Response finish_reason: {finish_reason}")
+                        logger.debug("Response finish_reason: %s", finish_reason)
 
                         # Try to get text content
                         if (
@@ -103,26 +103,26 @@ class GeminiLLMProvider(ILLMProvider):
                             if parts and hasattr(parts[0], "text"):
                                 text_content = parts[0].text
                                 if text_content:
-                                    logger.debug(f"LLM Response: {len(text_content)} chars returned")
+                                    logger.debug("LLM Response: %s chars returned", len(text_content))
                                     return Result.success(text_content)
                 except Exception as e:
-                    logger.warning(f"Error inspecting response structure: {e}")
+                    logger.warning("Error inspecting response structure: %s", e)
 
             # Try the simple .text accessor as fallback
             if response and hasattr(response, "text") and response.text:
-                logger.debug(f"LLM Response: {len(response.text)} chars returned (via .text accessor)")
+                logger.debug("LLM Response: %s chars returned (via .text accessor)", len(response.text))
                 return Result.success(response.text)
             else:
-                logger.warning(f"LLM API: No text in response for '{prompt_preview}'")
+                logger.warning("LLM API: No text in response for '%s'", prompt_preview)
                 if response:
-                    logger.debug(f"Response object type: {type(response)}")
-                    logger.debug(f"Response attributes: {dir(response)[:10]}...")  # First 10 attributes
+                    logger.debug("Response object type: %s", type(response))
+                    logger.debug("Response attributes: %s...", dir(response)[:10])  # First 10 attributes
                 return Result.failure(llm_provider_error("Empty response from LLM"))
 
         except Exception as e:
             api_time = time.time() - start_time
             error_str = str(e)
-            logger.error(f"LLM API Error ({api_time:.2f}s): {error_str[:200]} for '{prompt_preview}'")
+            logger.error("LLM API Error (%.2fs): %s for '%s'", api_time, error_str[:200], prompt_preview)
             return Result.failure(llm_provider_error(f"Content generation failed: {e!s}"))
 
     async def generate_content_async(self, prompt: str) -> Result[str]:

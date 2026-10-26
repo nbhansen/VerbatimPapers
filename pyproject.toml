@@ -74,6 +74,7 @@ select = [
     "PIE",   # flake8-pie (unnecessary code patterns)
     "SIM",   # flake8-simplify (code simplification suggestions)
     "RUF",   # Ruff-specific rules
+    "G",     # flake8-logging-format (lazy %-style log arguments)
 
     # Security
     "S",     # flake8-bandit (security testing)

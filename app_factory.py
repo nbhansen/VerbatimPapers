@@ -7,11 +7,12 @@ the Flask app with all dependencies properly injected, eliminating global state.
 import atexit
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+import logging
 from pathlib import Path
 
 from flask import Flask
 
-from application.config.logging_factory import ThreadSafeLoggerFactory
+from application.config.logging_config import setup_logging
 from application.config.system_config import SystemConfig
 from application.container.service_container import ServiceContainer
 from application.context.application_context import ApplicationContext
@@ -40,12 +41,12 @@ def create_app(config_path: Path | None = None) -> Flask:
     # Use logging config from system config (respects config.yaml + debug mode)
     logging_config = app_config.logging_config
     if logging_config.file_path is None:
-        log_dir = Path.home() / ".pdf_to_audio"
+        log_dir = Path.home() / ".verbatimpapers"
         log_dir.mkdir(exist_ok=True)
         logging_config = replace(logging_config, file_path=str(log_dir / "app.log"))
 
-    logger_factory = ThreadSafeLoggerFactory(logging_config)
-    logger = logger_factory.get_logger(__name__)
+    setup_logging(logging_config)
+    logger = logging.getLogger(__name__)
     logger.info("Logging configured: level=%s, file=%s", logging_config.level, logging_config.file_path)
 
     # Create service container
@@ -78,7 +79,6 @@ def create_app(config_path: Path | None = None) -> Flask:
     app_context = ApplicationContext(
         config=app_config,
         service_container=service_container,
-        logger_factory=logger_factory,
         progress_store=service_container.get(ThreadSafeProgressStore),
         background_executor=background_executor,
         cleanup_scheduler=cleanup_scheduler,
@@ -108,7 +108,7 @@ def create_app(config_path: Path | None = None) -> Flask:
 
 def register_error_handlers(app: Flask, context: ApplicationContext) -> None:
     """Register error handlers with access to application context."""
-    logger = context.get_logger("error_handlers")
+    logger = logging.getLogger(__name__)
 
     @app.errorhandler(413)
     def too_large(e: object) -> tuple[str, int]:

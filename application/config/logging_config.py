@@ -33,113 +33,70 @@ class LoggingConfig:
             raise ValueError("backup_count cannot be negative")
 
 
-def setup_logging(config: LoggingConfig) -> logging.Logger:
-    """Set up application logging with the given configuration.
+class JSONFormatter(logging.Formatter):
+    """One JSON object per record, for structured log collection."""
 
-    Args:
-        config: Logging configuration
+    def format(self, record: logging.LogRecord) -> str:
+        """Serialize the record as a single-line JSON object."""
+        log_entry = {
+            "timestamp": datetime.datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+        }
 
-    Returns:
-        Configured logger instance
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(log_entry)
+
+
+# Handlers installed by setup_logging carry this name prefix, so reconfiguring
+# replaces only ours and leaves foreign handlers (e.g. pytest's capture) alone.
+_HANDLER_PREFIX = "verbatimpapers."
+
+# Third-party libraries that flood the log at DEBUG/INFO.
+_NOISY_LOGGERS = ("pdfminer", "pdfplumber", "PIL", "urllib3", "httpx", "httpcore", "google_genai")
+
+
+def setup_logging(config: LoggingConfig) -> None:
+    """Configure the root logger, so every `logging.getLogger(__name__)` logger is covered.
+
+    Safe to call more than once: handlers from a previous call are replaced.
     """
-    # Get root logger for the application
-    logger = logging.getLogger("pdf_to_audio")
+    root = logging.getLogger()
 
-    # Clear any existing handlers to avoid duplication
-    logger.handlers.clear()
+    for handler in [h for h in root.handlers if (h.get_name() or "").startswith(_HANDLER_PREFIX)]:
+        root.removeHandler(handler)
+        handler.close()
 
-    # Set logging level
-    logger.setLevel(getattr(logging, config.level.upper()))
+    root.setLevel(config.level.upper())
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
-    # Create formatter
-    if config.json_format:
-        # JSON formatter for structured logging
+    formatter = JSONFormatter() if config.json_format else logging.Formatter(config.format)
 
-        class JSONFormatter(logging.Formatter):
-            def format(self, record: logging.LogRecord) -> str:
-                log_entry = {
-                    "timestamp": datetime.datetime.fromtimestamp(record.created).isoformat(),
-                    "level": record.levelname,
-                    "logger": record.name,
-                    "message": record.getMessage(),
-                    "module": record.module,
-                    "function": record.funcName,
-                    "line": record.lineno,
-                }
-
-                if record.exc_info:
-                    log_entry["exception"] = self.formatException(record.exc_info)
-
-                return json.dumps(log_entry)
-
-        formatter: logging.Formatter = JSONFormatter()
-    else:
-        formatter = logging.Formatter(config.format)
-
-    # Console handler
+    handlers: list[logging.Handler] = []
     if config.console_output:
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
+        console_handler.set_name(_HANDLER_PREFIX + "console")
+        handlers.append(console_handler)
 
-    # File handler (if file path specified)
     if config.file_path:
-        # Ensure directory exists
-        log_file = Path(config.file_path)
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Use rotating file handler to prevent huge log files
+        Path(config.file_path).parent.mkdir(parents=True, exist_ok=True)
+        # Rotating file handler to prevent huge log files
         file_handler = logging.handlers.RotatingFileHandler(
-            config.file_path, maxBytes=config.max_file_size_mb * 1024 * 1024, backupCount=config.backup_count
+            config.file_path,
+            maxBytes=config.max_file_size_mb * 1024 * 1024,
+            backupCount=config.backup_count,
+            encoding="utf-8",
         )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+        file_handler.set_name(_HANDLER_PREFIX + "file")
+        handlers.append(file_handler)
 
-    # Prevent propagation to root logger to avoid duplicate messages
-    logger.propagate = False
-
-    return logger
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Get a logger for a specific module.
-
-    Args:
-        name: Module name (typically __name__)
-
-    Returns:
-        Logger instance for the module
-    """
-    return logging.getLogger(f"pdf_to_audio.{name}")
-
-
-# Global logger instance - will be configured by the application
-_app_logger: logging.Logger | None = None
-
-
-def configure_application_logging(config: LoggingConfig) -> None:
-    """Configure application-wide logging.
-
-    Args:
-        config: Logging configuration
-    """
-    global _app_logger
-    _app_logger = setup_logging(config)
-
-
-def get_app_logger() -> logging.Logger:
-    """Get the main application logger.
-
-    Returns:
-        Main application logger
-
-    Raises:
-        RuntimeError: If logging has not been configured
-    """
-    if _app_logger is None:
-        # Fallback configuration for development
-        fallback_config = LoggingConfig()
-        configure_application_logging(fallback_config)
-
-    assert _app_logger is not None  # Should be set by fallback if None
-    return _app_logger
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
