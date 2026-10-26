@@ -38,7 +38,8 @@ tts:
   # Gemini TTS Settings (Cloud)
   gemini:
     voice_name: "Kore"
-    # Speech output needs a TTS model variant (name ends in -tts)
+    # Voice generation model. Must be a TTS variant (name ends in -tts);
+    # separate from llm.model_name, which is the text-cleaning model.
     model_name: "gemini-2.5-flash-preview-tts"
 
     # Delivery direction, prefixed to the text. Gemini takes tone and pacing as
@@ -108,6 +109,8 @@ ocr:
 
 # LLM Provider Settings (for text cleaning)
 llm:
+  # Text model for cleaning. Must NOT be a -tts model; separate from
+  # tts.gemini.model_name, which is the voice generation model.
   model_name: "gemini-2.5-flash"
   # Parallel cleaning requests and minimum seconds between them
   concurrent_requests: 3
