@@ -7,6 +7,7 @@ that a real encoder wrote from real speech. LLM cleaning is off (it needs an API
 from io import BytesIO
 from itertools import pairwise
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -29,10 +30,17 @@ TEST_PDF = Path(__file__).parents[1] / "testdata" / "testpdf.pdf"
 # Shared with the app's default download_dir, so the voice model is fetched at most once
 PIPER_MODELS = Path(__file__).parents[2] / "piper_models"
 
-pytestmark = pytest.mark.skipif(
-    not (shutil.which("ffmpeg") and shutil.which("ffprobe") and shutil.which("tesseract")),
-    reason="needs ffmpeg, ffprobe and tesseract",
-)
+_MISSING_TOOLS = [tool for tool in ("ffmpeg", "ffprobe", "tesseract") if shutil.which(tool) is None]
+
+
+@pytest.fixture(autouse=True)
+def _tools_present() -> None:
+    """Skip locally without the tools; on CI a missing tool is a broken setup, not a reason to skip."""
+    if _MISSING_TOOLS:
+        message = f"needs {', '.join(_MISSING_TOOLS)}"
+        if os.environ.get("CI"):
+            pytest.fail(message)
+        pytest.skip(message)
 
 
 @pytest.fixture
