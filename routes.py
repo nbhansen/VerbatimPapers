@@ -5,7 +5,6 @@ the Services instance stored on the app, eliminating global state.
 """
 
 from concurrent.futures import Future
-import contextlib
 from functools import partial
 import hmac
 import json
@@ -15,7 +14,7 @@ from pathlib import Path
 from typing import Any
 import uuid
 
-from flask import Flask, Response, current_app, jsonify, render_template, request, send_from_directory, url_for
+from flask import Flask, Response, current_app, jsonify, render_template, request, send_from_directory
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
@@ -167,25 +166,7 @@ def register_routes(app: Flask) -> None:
             audio_filename=audio_filename,
             base_filename=base_filename,
             timing_data=timing_json.get("text_segments", []),
-            timing_api_url=url_for("get_timing_data", filename=base_filename),
         )
-
-    @app.route("/api/timing/<filename>")
-    def get_timing_data(filename: str) -> Response | tuple[Response, int]:
-        """Serve timing metadata as JSON."""
-        timing_path = Path(app.config["AUDIO_FOLDER"]) / timing_json_filename(filename)
-
-        if not timing_path.exists():
-            return jsonify({"error": "Timing data not found"}), 404
-
-        try:
-            with timing_path.open(encoding="utf-8") as f:
-                timing_data = json.load(f)
-
-            return jsonify(timing_data)
-        except Exception as e:
-            logger.error("Error serving timing data: %s", str(e))
-            return jsonify({"error": "Failed to load timing data"}), 500
 
     @app.route("/api/progress/<operation_id>")
     def get_progress_status(operation_id: str) -> Response | tuple[Response, int]:
@@ -255,44 +236,6 @@ def register_routes(app: Flask) -> None:
         page_range = result_data.get("page_range") or PageRange(start_page=None, end_page=None)
 
         return render_upload_result(audio_result, original_filename, base_filename, page_range)
-
-    @app.route("/get_pdf_info", methods=["POST"])
-    def get_pdf_info() -> Response | tuple[Response, int]:
-        logger.debug("PDF info request received")
-        if "pdf_file" not in request.files:
-            return jsonify({"error": "No file was uploaded. Please select a PDF file and try again."}), 400
-
-        file = request.files["pdf_file"]
-        if not file.filename or file.filename == "" or not allowed_file(file.filename):
-            filename = getattr(file, "filename", "unknown")
-            return jsonify({"error": f"Invalid file '{filename}'. Only PDF files are supported for processing."}), 400
-
-        try:
-            # Save temporary file; UUID prefix avoids collisions between
-            # concurrent requests uploading identically-named files
-            original_filename = secure_filename(file.filename) or "upload.pdf"
-            temp_path = Path(app.config["UPLOAD_FOLDER"]) / f"temp_{uuid.uuid4().hex}_{original_filename}"
-            file.save(str(temp_path))
-
-            pdf_info_result = get_services().document_engine.get_pdf_info(str(temp_path))
-
-            # Clean up
-            with contextlib.suppress(Exception):
-                temp_path.unlink()
-
-            if pdf_info_result.is_success:
-                pdf_info = pdf_info_result.value
-                assert pdf_info is not None  # Type hint for mypy
-                return jsonify(
-                    {"total_pages": pdf_info.total_pages, "title": pdf_info.title, "author": pdf_info.author}
-                )
-            error = pdf_info_result.error
-            reason = (error.details or error.message) if error else "unknown error"
-            # An unreadable upload is the client's file, not a server fault
-            return jsonify({"error": f"Failed to analyze PDF '{original_filename}': {reason}"}), 400
-
-        except Exception as e:
-            return jsonify({"error": f"Unexpected error while analyzing PDF: {e!s}"}), 500
 
     def _validate_upload_request() -> tuple[FileStorage | None, str | None]:
         """Common validation for upload endpoints.
@@ -464,11 +407,9 @@ def render_upload_result(
 
     template_params: dict[str, Any] = {
         "download_names": download_names,
-        "audio_files": result.audio_files,
         "combined_mp3_file": result.combined_mp3,
         "original_filename": display_filename,
         "tts_engine": get_app_config().tts.engine.value,
-        "file_count": len(result.audio_files),
     }
 
     # Results stored before every conversion carried timing have no read-along view

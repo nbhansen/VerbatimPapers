@@ -156,7 +156,6 @@ VerbatimPapers/
 - `GET /` — Upload interface
 - `POST /upload` — Process PDF → MP3 plus read-along timing data
 - `GET /read-along/<base_filename>` — Synchronized reading interface
-- `GET /api/timing/<filename>` — Timing metadata as JSON
 - `GET /api/progress/<operation_id>` — Processing progress
 - `POST /api/cancel/<operation_id>` — Cancel a running operation
 - `GET /result/<operation_id>` — Result page for a completed operation

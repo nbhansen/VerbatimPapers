@@ -22,7 +22,7 @@ from ..interfaces import (
     ITextPipeline,
     never_cancelled,
 )
-from ..models import PageRange, PDFInfo, ProcessingRequest, TimedAudioResult
+from ..models import PageRange, ProcessingRequest, TimedAudioResult
 from ..text.segmentation import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -46,10 +46,6 @@ class DocumentEngine(IDocumentEngine):
         self.min_text_threshold = min_text_threshold
         self.ocr_resolution = ocr_resolution  # DPI at which pages are rendered for OCR
         logger.debug("DocumentEngine initialized with Result[T] pattern")
-
-    def get_pdf_info(self, pdf_path: str) -> Result[PDFInfo]:
-        """Page count and metadata; fails for a file that can't be read as a PDF."""
-        return self.pdf_extractor.get_pdf_info(pdf_path)
 
     def extract_text(self, pdf_path: str, pages: list[int] | None = None) -> Result[list[str]]:
         """Extract text from PDF with intelligent OCR fallback.
@@ -230,7 +226,7 @@ class DocumentEngine(IDocumentEngine):
         if page_range.is_full_document():
             return Result.success(None)
 
-        pdf_info_result = self.get_pdf_info(pdf_path)
+        pdf_info_result = self.pdf_extractor.get_pdf_info(pdf_path)
         if pdf_info_result.is_failure or pdf_info_result.value is None:
             return Result.failure(pdf_info_result.error or text_extraction_error("Could not get PDF info"))
 
