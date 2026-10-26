@@ -12,7 +12,7 @@ from domain.errors import ErrorCode, Result
 
 def _engine() -> DocumentEngine:
     """DocumentEngine with stubbed collaborators - none are used by this stage."""
-    return DocumentEngine(ocr_provider=Mock(), file_manager=Mock(), pdf_extractor=Mock())
+    return DocumentEngine(ocr_provider=Mock(), pdf_extractor=Mock())
 
 
 def _pipeline(cleaned: str) -> Mock:

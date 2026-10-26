@@ -27,6 +27,7 @@ def get_processing_stage_error(
         "file_combination": f"Failed to create final audio file{file_info}",
         "file_validation": f"File validation failed{file_info}",
         "configuration": f"Configuration error{file_info}",
+        "page_range": f"Invalid page range{file_info}",
     }
 
     base_message = stage_messages.get(stage, f"Processing failed at {stage}{file_info}")

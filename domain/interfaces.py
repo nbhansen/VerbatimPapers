@@ -6,12 +6,10 @@ implementations, facilitating testing and modularity.
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any
 
 from .errors import Result
 from .models import (
     CleanupStats,
-    PageRange,
     PDFInfo,
     PdfPageText,
     ProcessingRequest,
@@ -58,20 +56,16 @@ class IOCRProvider(ABC):
     """Interface for an Optical Character Recognition provider."""
 
     @abstractmethod
-    def perform_ocr(self, image_path: str) -> Result[str]:
-        """Performs OCR on an image and returns the extracted text."""
-
-    @abstractmethod
-    def get_pdf_info(self, pdf_path: str) -> PDFInfo:
-        """Get PDF document information including page count and metadata."""
-
-    @abstractmethod
-    def validate_range(self, pdf_path: str, page_range: PageRange) -> dict[str, Any]:
-        """Validate page range against PDF document."""
+    def perform_ocr(self, image: bytes) -> Result[str]:
+        """Recognize the text in an encoded image (e.g. PNG bytes)."""
 
 
 class IPdfTextExtractor(ABC):
-    """Interface for extracting text and page images from PDF documents."""
+    """Interface for reading PDF documents: metadata, text and page images."""
+
+    @abstractmethod
+    def get_pdf_info(self, pdf_path: str) -> Result[PDFInfo]:
+        """Page count and metadata; fails for a file that can't be read as a PDF."""
 
     @abstractmethod
     def extract_text_by_page(self, pdf_path: str, pages: list[int] | None = None) -> Result[list[PdfPageText]]:
@@ -139,10 +133,6 @@ class IDocumentEngine(ABC):
     @abstractmethod
     def get_pdf_info(self, pdf_path: str) -> Result[PDFInfo]:
         """Get PDF metadata and information."""
-
-    @abstractmethod
-    def validate_page_range(self, pdf_path: str, page_range: PageRange) -> Result[dict[str, Any]]:
-        """Validate requested page range."""
 
     @abstractmethod
     def extract_text(self, pdf_path: str, pages: list[int] | None = None) -> Result[list[str]]:

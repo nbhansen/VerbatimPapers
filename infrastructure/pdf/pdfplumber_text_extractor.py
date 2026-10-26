@@ -1,5 +1,5 @@
 # infrastructure/pdf/pdfplumber_text_extractor.py - pdfplumber adapter for IPdfTextExtractor
-"""PDF text extraction backed by pdfplumber.
+"""PDF reading backed by pdfplumber: metadata, text and page images.
 
 Implements the domain's IPdfTextExtractor interface so the domain layer stays
 free of external library imports. All errors are returned as Result[T].
@@ -12,13 +12,31 @@ import pdfplumber
 
 from domain.errors import ErrorCode, Result, text_extraction_error
 from domain.interfaces import IPdfTextExtractor
-from domain.models import PdfPageText
+from domain.models import PDFInfo, PdfPageText
 
 logger = logging.getLogger(__name__)
 
 
 class PdfPlumberTextExtractor(IPdfTextExtractor):
-    """Extracts text and page images from PDFs using pdfplumber."""
+    """Reads PDFs using pdfplumber."""
+
+    def get_pdf_info(self, pdf_path: str) -> Result[PDFInfo]:
+        """Page count and metadata; an unreadable or page-less file is a failure, not 0 pages."""
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                metadata = pdf.metadata or {}
+                info = PDFInfo(
+                    total_pages=len(pdf.pages),
+                    title=str(metadata.get("Title") or "Unknown"),
+                    author=str(metadata.get("Author") or "Unknown"),
+                )
+        except Exception as e:
+            logger.warning("Could not read PDF %s: %s", pdf_path, e)
+            return Result.failure(text_extraction_error("The file could not be read as a PDF; it may be corrupt"))
+
+        if info.total_pages == 0:
+            return Result.failure(text_extraction_error("The PDF has no pages"))
+        return Result.success(info)
 
     def extract_text_by_page(self, pdf_path: str, pages: list[int] | None = None) -> Result[list[PdfPageText]]:
         """Extract raw text for the requested 0-based pages (all pages if None).

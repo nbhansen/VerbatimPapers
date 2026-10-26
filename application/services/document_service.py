@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from application.services.error_formatting import clean_text_for_display, get_processing_stage_error
 from application.services.progress_store import ThreadSafeProgressStore
+from domain.errors import ErrorCode
 from domain.interfaces import IAudioEngine, IDocumentEngine, ITextPipeline
 from domain.models import ProcessingRequest
 from utils import parse_page_range_from_form, parse_plain_english_from_form
@@ -104,8 +105,16 @@ class DocumentProcessingService:
 
             logger.debug("Processing result: success=%s", processing_result.is_success)
             if processing_result.is_failure:
-                error_msg = str(processing_result.error)
-                enhanced_error = get_processing_stage_error("audio_generation", Exception(error_msg), original_filename)
+                error = processing_result.error
+                if error is not None and error.code == ErrorCode.INVALID_PAGE_RANGE:
+                    # The details say which page is out of range; that is what the user can act on
+                    enhanced_error = get_processing_stage_error(
+                        "page_range", Exception(error.details or error.message), original_filename
+                    )
+                else:
+                    enhanced_error = get_processing_stage_error(
+                        "audio_generation", Exception(str(error)), original_filename
+                    )
                 self.progress_store.update(
                     operation_id,
                     "error",

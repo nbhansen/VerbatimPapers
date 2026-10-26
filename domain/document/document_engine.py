@@ -4,9 +4,7 @@
 No exceptions thrown - all errors returned as Result[T].
 """
 
-from contextlib import suppress
 import logging
-from typing import Any
 
 from ..errors import (
     ErrorCode,
@@ -17,7 +15,6 @@ from ..errors import (
 from ..interfaces import (
     IAudioEngine,
     IDocumentEngine,
-    IFileManager,
     IOCRProvider,
     IPdfTextExtractor,
     ITextPipeline,
@@ -37,33 +34,19 @@ class DocumentEngine(IDocumentEngine):
     def __init__(
         self,
         ocr_provider: IOCRProvider,
-        file_manager: IFileManager,
         pdf_extractor: IPdfTextExtractor,
         min_text_threshold: int = 100,
         ocr_resolution: int = 300,
     ):
         self.ocr_provider = ocr_provider
-        self.file_manager = file_manager
         self.pdf_extractor = pdf_extractor
         self.min_text_threshold = min_text_threshold
         self.ocr_resolution = ocr_resolution  # DPI at which pages are rendered for OCR
         logger.debug("DocumentEngine initialized with Result[T] pattern")
 
     def get_pdf_info(self, pdf_path: str) -> Result[PDFInfo]:
-        """Get PDF information - delegates to OCR provider."""
-        try:
-            info = self.ocr_provider.get_pdf_info(pdf_path)
-            return Result.success(info)
-        except Exception as e:
-            return Result.from_exception(e, ErrorCode.TEXT_EXTRACTION_FAILED, retryable=True)
-
-    def validate_page_range(self, pdf_path: str, page_range: PageRange) -> Result[dict[str, Any]]:
-        """Validate page range - delegates to OCR provider."""
-        try:
-            validation = self.ocr_provider.validate_range(pdf_path, page_range)
-            return Result.success(validation)
-        except Exception as e:
-            return Result.from_exception(e, ErrorCode.INVALID_PAGE_RANGE, retryable=False)
+        """Page count and metadata; fails for a file that can't be read as a PDF."""
+        return self.pdf_extractor.get_pdf_info(pdf_path)
 
     def extract_text(self, pdf_path: str, pages: list[int] | None = None) -> Result[list[str]]:
         """Extract text from PDF with intelligent OCR fallback.
@@ -223,52 +206,33 @@ class DocumentEngine(IDocumentEngine):
             return Result.from_exception(e, ErrorCode.AUDIO_GENERATION_FAILED, retryable=True)
 
     def _convert_page_range_to_list(self, pdf_path: str, page_range: PageRange) -> Result[list[int] | None]:
-        """Convert PageRange to 0-based page list."""
+        """Resolve the requested range to 0-based pages, checked against the real page count."""
         if page_range.is_full_document():
             return Result.success(None)
 
-        start = page_range.start_page or 1
-        end = page_range.end_page
+        pdf_info_result = self.get_pdf_info(pdf_path)
+        if pdf_info_result.is_failure or pdf_info_result.value is None:
+            return Result.failure(pdf_info_result.error or text_extraction_error("Could not get PDF info"))
 
-        if end is None:
-            # Get total pages to determine end
-            pdf_info_result = self.get_pdf_info(pdf_path)
-            if pdf_info_result.is_failure:
-                return Result.failure(pdf_info_result.error)  # type: ignore[arg-type]
-            pdf_info = pdf_info_result.value
-            if pdf_info is None:
-                return Result.failure(text_extraction_error("Could not get PDF info"))
-            end = pdf_info.total_pages
-
-        return Result.success(list(range(start - 1, end)))  # Convert to 0-based indexing
+        pages_result = page_range.validate_against_document(pdf_info_result.value.total_pages)
+        if pages_result.is_failure:
+            return Result.failure(pages_result.error)  # type: ignore[arg-type]
+        return Result.success(pages_result.value)
 
     def _ocr_page(self, pdf_path: str, page_index: int) -> str:
         """Perform OCR on a single PDF page, returning empty text on any failure."""
-        temp_image_path = None
-
         try:
             image_result = self.pdf_extractor.render_page_image(pdf_path, page_index, self.ocr_resolution)
             if image_result.is_failure or image_result.value is None:
                 logger.warning("Page image rendering failed: %s", image_result.error)
                 return ""
 
-            temp_image_path = self.file_manager.save_temp_file(image_result.value, suffix=".png")
-
-            # Perform OCR using the provider
-            ocr_result = self.ocr_provider.perform_ocr(temp_image_path)
-            if ocr_result.is_success:
-                return ocr_result.value or ""
-            else:
+            ocr_result = self.ocr_provider.perform_ocr(image_result.value)
+            if ocr_result.is_failure:
                 logger.warning("OCR provider failed: %s", ocr_result.error)
                 return ""
+            return ocr_result.value or ""
 
         except Exception as e:
             logger.exception("OCR failed for page: %s", e)
             return ""
-
-        finally:
-            # Clean up temporary file
-            if temp_image_path:
-                # Ignore file cleanup errors - temporary files may already be removed
-                with suppress(OSError, FileNotFoundError):
-                    self.file_manager.delete_file(temp_image_path)

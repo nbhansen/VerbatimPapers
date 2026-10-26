@@ -355,13 +355,6 @@ def requires_ffmpeg():
 
 
 @pytest.fixture
-def requires_poppler():
-    """Skip test if Poppler (pdftoppm/pdfinfo) is not available."""
-    if not _check_command_available("pdftoppm"):
-        pytest.skip("Poppler utilities not available")
-
-
-@pytest.fixture
 def real_piper_tts(requires_piper, temp_dir):
     """Create a real Piper TTS provider for integration testing."""
     from domain.config import PiperConfig
@@ -376,7 +369,7 @@ def real_piper_tts(requires_piper, temp_dir):
 
 
 @pytest.fixture
-def real_tesseract_ocr(requires_tesseract, requires_poppler):
+def real_tesseract_ocr(requires_tesseract):
     """Create a real Tesseract OCR provider for integration testing."""
     from infrastructure.ocr.tesseract_ocr_provider import TesseractOCRProvider
 

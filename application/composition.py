@@ -106,7 +106,6 @@ class Services:
         """PDF text extraction, with OCR fallback."""
         return DocumentEngine(
             ocr_provider=self.ocr_provider,
-            file_manager=self.file_manager,
             pdf_extractor=self.pdf_extractor,
             ocr_resolution=self.config.ocr.dpi,
         )

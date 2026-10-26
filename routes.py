@@ -281,8 +281,10 @@ def register_routes(app: Flask) -> None:
                 return jsonify(
                     {"total_pages": pdf_info.total_pages, "title": pdf_info.title, "author": pdf_info.author}
                 )
-            else:
-                return jsonify({"error": f"Failed to analyze PDF '{original_filename}': {pdf_info_result.error}"}), 500
+            error = pdf_info_result.error
+            reason = (error.details or error.message) if error else "unknown error"
+            # An unreadable upload is the client's file, not a server fault
+            return jsonify({"error": f"Failed to analyze PDF '{original_filename}': {reason}"}), 400
 
         except Exception as e:
             return jsonify({"error": f"Unexpected error while analyzing PDF: {e!s}"}), 500
