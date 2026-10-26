@@ -16,11 +16,8 @@ class GeminiConfig:
 
     api_key: str | None = None
     voice_name: str = "Kore"
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-2.5-flash-preview-tts"  # Speech output needs a *-tts model
     style_prompt: str | None = None
-    min_request_interval: float = 2.0
-    max_retries: int = 3
-    base_retry_delay: int = 16
 
 
 @dataclass(frozen=True)
@@ -37,7 +34,6 @@ class PiperConfig:
     noise_w: float = 0.8  # Pronunciation variability
     sentence_silence: float = 0.2  # Seconds of silence between sentences
     download_dir: str = "piper_models"
-    use_gpu: bool = True  # Not yet implemented: Piper currently runs CPU-only. Kept for future use.
 
 
 @dataclass(frozen=True)

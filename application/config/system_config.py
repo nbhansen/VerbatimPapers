@@ -1,74 +1,16 @@
 # application/config/system_config.py
 """SystemConfig - Central configuration management using composition.
 
-Configuration Hierarchy
-=======================
+SystemConfig is the single source of truth for all application settings,
+composed of one frozen config class per concern (TTS, files, OCR, ...).
 
-SystemConfig is the single source of truth for all application settings.
-It uses composition of specialized config classes for separation of concerns.
-
-Config Structure (from config.yaml):
-------------------------------------
-tts:                    # TTSConfig - TTS engine selection and rate limiting
-  engine: "piper"       # "piper" (local) or "gemini" (cloud)
-  concurrent_requests   # Max parallel TTS requests
-  request_delay_seconds # Delay between requests (rate limiting)
-
-piper:                  # PiperConfig - Piper-specific settings
-  model_name            # Voice model (e.g., "en_US-lessac-medium")
-  download_dir          # Where to store downloaded models
-  length_scale          # Speech speed (1.0 = normal)
-  noise_scale           # Speech variability
-  noise_w               # Pronunciation/timing variability
-  sentence_silence      # Seconds of silence between sentences
-
-gemini:                 # GeminiConfig - Gemini API settings (optional)
-  api_key               # API key (or set GEMINI_API_KEY env var)
-  model_name            # Model to use
-  style_prompt          # Delivery/tone directive prefixed to the text
-
-files:                  # FileConfig - File storage paths
-  upload_folder         # Where uploaded PDFs go
-  audio_folder          # Where generated audio goes
-  max_file_size_mb      # Upload size limit
-
-cleanup:                # FileCleanupConfig - Auto-cleanup scheduler
-  enabled               # Enable/disable cleanup
-  max_age_seconds       # Delete files older than this
-  check_interval_seconds # How often to check
-
-text_processing:        # TextProcessingConfig - Text pipeline settings
-  enable_cleaning       # Use LLM for text cleaning
-  enable_plain_english  # Simplify language
-  llm_chunk_size        # Max chars per chunk sent to LLM for cleaning
-
-performance:            # PerformanceConfig - Processing optimization
-  enable_async          # Use async TTS processing
-  audio_target_chunk_size # Target chars per audio chunk
-
-flask:                  # FlaskConfig - Web server settings
-  host, port, debug
-
-ocr:                    # OCRConfig - Tesseract settings
-  language, dpi, psm
-
-llm:                    # LLMConfig - LLM provider settings
-  model_name, max_tokens, temperature
-
-admin:                  # AdminConfig - /admin endpoint gating
-  enabled               # Default false; /admin/* returns 404 when disabled
-                        # Optional token via secrets.admin_token (X-Admin-Token header)
-
-Dependencies
-------------
-- tts.engine determines which of piper/gemini config is active
-- text_processing.enable_cleaning requires llm config
-- cleanup requires files config (uses same folders)
+config.example.yaml is the reference for every supported key. Keys in
+config.yaml that no parser reads are logged as warnings at load time, so a
+typo or a removed setting doesn't silently do nothing.
 
 Environment Variables
 ---------------------
-- GEMINI_API_KEY: API key for Gemini (alternative to config file)
-- FLASK_DEBUG: Override flask.debug setting
+- PROJECT_ROOT: Base directory that upload/audio/model paths must stay within
 """
 
 from collections.abc import Callable
@@ -134,8 +76,13 @@ class SystemConfig:
         # Load and validate YAML file
         yaml_config = cls._load_and_validate_yaml(config_path)
 
-        # Create configuration accessor function
-        get_config = cls._create_config_accessor(yaml_config)
+        # Create configuration accessor function, recording every key it is asked for
+        lookup = cls._create_config_accessor(yaml_config)
+        requested_keys: set[str] = set()
+
+        def get_config(yaml_path: str, default: YAMLValue | None = None) -> YAMLValue:
+            requested_keys.add(yaml_path)
+            return lookup(yaml_path, default)
 
         # Parse TTS configuration
         tts_config = cls._parse_tts_config(get_config)
@@ -177,7 +124,20 @@ class SystemConfig:
         )
 
         config.validate()
+        cls._warn_unknown_keys(yaml_config, requested_keys)
         return config
+
+    @classmethod
+    def _warn_unknown_keys(cls, yaml_config: dict[str, object], known: set[str], prefix: str = "") -> None:
+        """Log every YAML key that no parser reads (typos, removed settings)."""
+        for key, value in yaml_config.items():
+            path = f"{prefix}{key}"
+            if path in known:
+                continue
+            if isinstance(value, dict):
+                cls._warn_unknown_keys(cast(dict[str, object], value), known, f"{path}.")
+            elif not any(k.startswith(f"{path}.") for k in known):  # e.g. an empty "admin:" section
+                logger.warning("Ignoring unknown config key: %s", path)
 
     @classmethod
     def _load_and_validate_yaml(cls, config_path: str) -> dict[str, object]:
@@ -240,14 +200,9 @@ class SystemConfig:
             api_key=cls._parse_optional_string_value(get_config("secrets.google_ai_api_key", None)),
             voice_name=cls._parse_string_value(get_config("tts.gemini.voice_name", "Kore"), "Kore"),
             model_name=cls._parse_string_value(
-                get_config("tts.gemini.model_name", "gemini-2.5-flash"), "gemini-2.5-flash"
+                get_config("tts.gemini.model_name", "gemini-2.5-flash-preview-tts"), "gemini-2.5-flash-preview-tts"
             ),
             style_prompt=cls._parse_optional_string_value(get_config("tts.gemini.style_prompt", None)),
-            min_request_interval=cls._parse_float_value(
-                get_config("tts.gemini.min_request_interval", 2.0), 2.0, 0.1, 10.0
-            ),
-            max_retries=cls._parse_int_value(get_config("tts.gemini.max_retries", 3), 3, 1, 10),
-            base_retry_delay=cls._parse_int_value(get_config("tts.gemini.base_retry_delay", 16), 16, 1, 60),
         )
 
     @classmethod
@@ -271,34 +226,15 @@ class SystemConfig:
             noise_w=cls._parse_float_value(get_config("tts.piper.noise_w", 0.8), 0.8, 0.0, 2.0),
             sentence_silence=cls._parse_float_value(get_config("tts.piper.sentence_silence", 0.2), 0.2, 0.0, 5.0),
             download_dir=cls._parse_string_value(get_config("tts.piper.download_dir", "piper_models"), "piper_models"),
-            use_gpu=cls._parse_bool_value(get_config("tts.piper.use_gpu", True), True),
         )
 
     @classmethod
     def _parse_file_config(cls, get_config: ConfigAccessor) -> FileConfig:
         """Parse file handling configuration."""
-        # Process allowed extensions
-        allowed_ext = get_config("files.allowed_extensions", ["pdf"])
-        allowed_extensions: frozenset[str]
-        if isinstance(allowed_ext, list):
-            allowed_extensions = frozenset(allowed_ext)
-        else:
-            allowed_extensions = frozenset(ext.strip() for ext in str(allowed_ext).split(","))
-
-        # Process audio extensions
-        audio_ext = get_config("files.audio_extensions", ["wav", "mp3"])
-        audio_extensions: frozenset[str]
-        if isinstance(audio_ext, list):
-            audio_extensions = frozenset(audio_ext)
-        else:
-            audio_extensions = frozenset(ext.strip() for ext in str(audio_ext).split(","))
-
         return FileConfig(
             upload_folder=cls._parse_string_value(get_config("files.upload_folder", "uploads"), "uploads"),
             audio_folder=cls._parse_string_value(get_config("files.audio_folder", "audio_outputs"), "audio_outputs"),
             max_file_size_mb=cls._parse_int_value(get_config("files.max_file_size_mb", 100), 100, 1, 1000),
-            allowed_extensions=allowed_extensions,
-            audio_extensions=audio_extensions,
         )
 
     @classmethod
@@ -319,17 +255,11 @@ class SystemConfig:
         """Parse text processing configuration."""
         return TextProcessingConfig(
             enable_cleaning=cls._parse_bool_value(get_config("text_processing.enable_text_cleaning", True), True),
-            enable_plain_english=cls._parse_bool_value(
-                get_config("text_processing.enable_plain_english_conversion", False), False
-            ),
             llm_chunk_size=cls._parse_int_value(
                 get_config("text_processing.llm_chunk_size", 50000), 50000, 10000, 200000
             ),
             audio_target_chunk_size=cls._parse_int_value(
                 get_config("text_processing.audio_target_chunk_size", 3000), 3000, 100, 10000
-            ),
-            audio_max_chunk_size=cls._parse_int_value(
-                get_config("text_processing.audio_max_chunk_size", 5000), 5000, 100, 20000
             ),
         )
 
@@ -338,7 +268,9 @@ class SystemConfig:
         """Parse performance configuration."""
         return PerformanceConfig(
             enable_async_audio=cls._parse_bool_value(get_config("performance.enable_async_audio", True), True),
-            audio_concurrent_chunks=cls._parse_int_value(get_config("audio.concurrent_chunks", 4), 4, 1, 20),
+            audio_concurrent_chunks=cls._parse_int_value(
+                get_config("performance.audio_concurrent_chunks", 4), 4, 1, 20
+            ),
             max_concurrent_operations=cls._parse_int_value(
                 get_config("performance.max_concurrent_operations", 2), 2, 1, 8
             ),
@@ -384,21 +316,16 @@ class SystemConfig:
         """Parse OCR configuration."""
         return OCRConfig(
             dpi=cls._parse_int_value(get_config("ocr.dpi", 300), 300, 150, 600),
-            threshold=cls._parse_int_value(get_config("ocr.threshold", 180), 180, 100, 240),
             language=cls._parse_string_value(get_config("ocr.language", "eng"), "eng"),
         )
 
     @classmethod
     def _parse_llm_config(cls, get_config: ConfigAccessor) -> LLMConfig:
-        """Parse LLM configuration."""
-        # Get the API key which may be shared with Gemini
-        api_key = cls._parse_optional_string_value(get_config("secrets.google_ai_api_key", None))
-
+        """Parse LLM configuration (the API key is shared via GeminiConfig)."""
         return LLMConfig(
             model_name=cls._parse_optional_string_value(get_config("llm.model_name", None)),
             concurrent_requests=cls._parse_int_value(get_config("llm.concurrent_requests", 3), 3, 1, 10),
             request_delay_seconds=cls._parse_float_value(get_config("llm.request_delay_seconds", 0.5), 0.5, 0.1, 5.0),
-            api_key=api_key,
         )
 
     def validate(self) -> None:
@@ -558,11 +485,11 @@ class SystemConfig:
             f"Log Level: {self.logging_config.level}",
             f"TTS Engine: {self.tts.engine.value}",
             f"Text Cleaning: {'Enabled' if self.text_processing.enable_cleaning else 'Disabled'}",
-            f"Plain English Conversion: {'Enabled' if self.text_processing.enable_plain_english else 'Disabled'}",
             f"Async Audio: {'Enabled' if self.performance.enable_async_audio else 'Disabled'}",
             f"Audio Concurrent Chunks: {self.performance.audio_concurrent_chunks}",
             f"TTS Concurrent Requests: {self.tts.concurrent_requests}",
             f"LLM Concurrent Requests: {self.llm.concurrent_requests}",
+            f"OCR Language: {self.ocr.language}",
             f"Upload Folder: {self.files.upload_folder}",
             f"Audio Folder: {self.files.audio_folder}",
             f"File Cleanup: {'Enabled' if self.cleanup.enabled else 'Disabled'}",

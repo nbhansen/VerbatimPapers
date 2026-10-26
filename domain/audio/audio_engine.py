@@ -37,7 +37,6 @@ class AudioEngine(IAudioEngine):
         duration_measurer: IAudioDurationMeasurer | None = None,
         max_concurrent: int = 4,
         audio_target_chunk_size: int = 2000,
-        audio_max_chunk_size: int = 3000,
         enable_async: bool = True,
         chunking_strategy: IChunkingStrategy | None = None,
         assembler: AudioAssembler | None = None,
@@ -49,16 +48,11 @@ class AudioEngine(IAudioEngine):
         self.duration_measurer = duration_measurer
         self.max_concurrent = max_concurrent
         self.audio_target_chunk_size = audio_target_chunk_size
-        self.audio_max_chunk_size = audio_max_chunk_size
         self.enable_async = enable_async
         self.chunking_strategy = chunking_strategy or create_chunking_strategy(ChunkingMode.SENTENCE_BASED)
         self.base_delay = self._get_base_delay_for_engine()
 
-        logger.debug(
-            "AudioEngine initialized with chunk sizes: target=%d, max=%d",
-            self.audio_target_chunk_size,
-            self.audio_max_chunk_size,
-        )
+        logger.debug("AudioEngine initialized with target chunk size %d", self.audio_target_chunk_size)
 
     def generate_with_timing(self, text_chunks: list[str], output_filename: str) -> Result[TimedAudioResult]:
         """Main entry point for audio generation with timing.

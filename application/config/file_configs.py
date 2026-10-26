@@ -1,7 +1,7 @@
 # application/config/file_configs.py
 """File handling and cleanup configuration classes."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -11,8 +11,6 @@ class FileConfig:
     upload_folder: str = "uploads"
     audio_folder: str = "audio_outputs"
     max_file_size_mb: int = 100
-    allowed_extensions: frozenset[str] = field(default_factory=lambda: frozenset({"pdf"}))
-    audio_extensions: frozenset[str] = field(default_factory=lambda: frozenset({"wav", "mp3"}))
 
 
 @dataclass(frozen=True)

@@ -9,10 +9,8 @@ class TextProcessingConfig:
     """Text processing configuration."""
 
     enable_cleaning: bool = True
-    enable_plain_english: bool = False
     llm_chunk_size: int = 50000  # Large chunks for LLM text cleaning
     audio_target_chunk_size: int = 3000
-    audio_max_chunk_size: int = 5000
 
 
 @dataclass(frozen=True)
@@ -22,7 +20,6 @@ class LLMConfig:
     model_name: str | None = None
     concurrent_requests: int = 3
     request_delay_seconds: float = 0.5
-    api_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,7 +27,6 @@ class OCRConfig:
     """OCR configuration."""
 
     dpi: int = 300
-    threshold: int = 180
     language: str = "eng"
 
 

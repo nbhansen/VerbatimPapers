@@ -48,7 +48,6 @@ class TestSystemConfigYAMLLoading:
                 "upload_folder": "test_uploads",
                 "audio_folder": "test_audio",
                 "max_file_size_mb": 50,
-                "allowed_extensions": ["pdf", "txt"],
                 "cleanup": {"enabled": False, "max_file_age_hours": 48.0},
             },
         }
@@ -71,7 +70,6 @@ class TestSystemConfigYAMLLoading:
         assert config.files.upload_folder == "test_uploads"
         assert config.files.audio_folder == "test_audio"
         assert config.files.max_file_size_mb == 50
-        assert config.files.allowed_extensions == frozenset({"pdf", "txt"})
         assert config.cleanup.enabled is False
         assert config.cleanup.max_file_age_hours == 48.0
 
@@ -241,31 +239,6 @@ class TestSystemConfigYAMLLoading:
         config_file = _write_yaml_config(tmp_path, config_data)
         with pytest.raises(ValueError, match=r"Invalid TTS engine.*piper.*gemini"):
             SystemConfig.from_yaml(config_file)
-
-    def test_from_yaml_list_and_string_extensions(self, tmp_path: Path):
-        """Test that file extensions can be specified as list or string."""
-        # Test list format
-        config_data = {
-            "tts": {"engine": "piper"},
-            "files": {"allowed_extensions": ["pdf", "txt", "doc"], "audio_extensions": ["wav", "mp3", "ogg"]},
-        }
-
-        config_file = _write_yaml_config(tmp_path, config_data)
-        config = SystemConfig.from_yaml(config_file)
-        assert config.files.allowed_extensions == frozenset({"pdf", "txt", "doc"})
-        assert config.files.audio_extensions == frozenset({"wav", "mp3", "ogg"})
-
-        # Test string format
-        config_data = {
-            "tts": {"engine": "piper"},
-            "files": {"allowed_extensions": "pdf,txt,doc", "audio_extensions": "wav,mp3,ogg"},
-        }
-
-        config_file_str = tmp_path / "config_str.yaml"
-        config_file_str.write_text(yaml.dump(config_data))
-        config = SystemConfig.from_yaml(str(config_file_str))
-        assert config.files.allowed_extensions == frozenset({"pdf", "txt", "doc"})
-        assert config.files.audio_extensions == frozenset({"wav", "mp3", "ogg"})
 
     def test_from_yaml_gemini_validation(self, tmp_path: Path):
         """Test Gemini-specific validation."""

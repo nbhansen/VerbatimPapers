@@ -23,29 +23,21 @@ class TesseractOCRProvider(IOCRProvider):
         self,
         tesseract_cmd: str | None = None,
         poppler_path_custom: str | None = None,
-        config: object | None = None,
+        language: str = "eng",
     ) -> None:
+        """Initialize the provider.
+
+        Args:
+            tesseract_cmd: Path to the tesseract binary (default: found on PATH)
+            poppler_path_custom: Custom poppler binary directory
+            language: Tesseract language code(s), e.g. "eng", "dan" or "eng+dan"
+        """
         if tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
         self.poppler_path_custom = poppler_path_custom
+        self.ocr_language = language
 
-        # Configure OCR settings with type safety
-        if config:
-            self.ocr_dpi = getattr(config, "ocr_dpi", 300)
-            self.ocr_threshold = getattr(config, "ocr_threshold", 180)
-            self.ocr_language = getattr(config, "ocr_language", "eng")
-        else:
-            # Default settings
-            self.ocr_dpi = 300
-            self.ocr_threshold = 180
-            self.ocr_language = "eng"
-
-        logger.debug(
-            "TesseractOCRProvider initialized: dpi=%d, threshold=%d, language=%s",
-            self.ocr_dpi,
-            self.ocr_threshold,
-            self.ocr_language,
-        )
+        logger.debug("TesseractOCRProvider initialized: language=%s", self.ocr_language)
 
     def perform_ocr(self, image_path: str) -> Result[str]:
         """Perform OCR on a single image file."""

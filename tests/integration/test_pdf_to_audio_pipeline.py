@@ -128,7 +128,6 @@ def pipeline_config(pipeline_test_dirs: tuple[str, str]) -> SystemConfig:
             enable_cleaning=False,  # Disable LLM to focus on pipeline
             llm_chunk_size=500,
             audio_target_chunk_size=1000,
-            audio_max_chunk_size=2000,
         ),
         performance=PerformanceConfig(
             enable_async_audio=False,  # Sync for predictable testing
@@ -324,7 +323,7 @@ class TestPDFToAudioPipelineCore:
 
                     # Chunks should be reasonable size
                     for chunk in chunks:
-                        assert len(chunk) <= pipeline_config.text_processing.audio_max_chunk_size
+                        assert len(chunk) <= pipeline_config.text_processing.audio_target_chunk_size
                         assert len(chunk.strip()) > 0  # No empty chunks
 
 
@@ -407,8 +406,3 @@ class TestPDFToAudioIntegrationValidation:
 
         # Text processing configuration should be valid
         assert pipeline_config.text_processing.audio_target_chunk_size > 0
-        assert pipeline_config.text_processing.audio_max_chunk_size > 0
-        assert (
-            pipeline_config.text_processing.audio_max_chunk_size
-            >= pipeline_config.text_processing.audio_target_chunk_size
-        )

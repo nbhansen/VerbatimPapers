@@ -141,7 +141,6 @@ class ServiceContainer(IServiceContainer):
                 assembler=self.get(AudioAssembler),
                 max_concurrent=self.config.performance.audio_concurrent_chunks,
                 audio_target_chunk_size=self.config.text_processing.audio_target_chunk_size,
-                audio_max_chunk_size=self.config.text_processing.audio_max_chunk_size,
                 enable_async=self.config.performance.enable_async_audio,
             ),
             # Document Engine
@@ -149,11 +148,13 @@ class ServiceContainer(IServiceContainer):
                 ocr_provider=self.get(TesseractOCRProvider),
                 file_manager=self.get(FileManager),
                 pdf_extractor=self.get(IPdfTextExtractor),
+                audio_target_chunk_size=self.config.text_processing.audio_target_chunk_size,
+                ocr_resolution=self.config.ocr.dpi,
             ),
             # PDF Text Extractor
             IPdfTextExtractor: lambda: PdfPlumberTextExtractor(),
             # OCR Provider
-            TesseractOCRProvider: lambda: TesseractOCRProvider(config=self.config),
+            TesseractOCRProvider: lambda: TesseractOCRProvider(language=self.config.ocr.language),
         }
 
         logger.debug(
@@ -169,7 +170,13 @@ class ServiceContainer(IServiceContainer):
                 # Use LLM config for model name, falling back to gemini config if not set
                 # But prefer llm.model_name for text tasks
                 model_name = self.config.llm.model_name or self.config.gemini.model_name
-                factories[GeminiLLMProvider] = lambda: GeminiLLMProvider(model_name=model_name, api_key=api_key)
+                llm = self.config.llm
+                factories[GeminiLLMProvider] = lambda: GeminiLLMProvider(
+                    model_name=model_name,
+                    api_key=api_key,
+                    min_request_interval=llm.request_delay_seconds,
+                    max_concurrent_requests=llm.concurrent_requests,
+                )
                 factories[ILLMProvider] = lambda: self.get(GeminiLLMProvider)
 
         return factories

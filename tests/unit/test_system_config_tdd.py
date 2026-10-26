@@ -86,58 +86,6 @@ class TestSystemConfigCreation:
         assert config.files.audio_folder == "custom_audio"
         assert config.text_processing.enable_cleaning is False
 
-    def test_system_config_post_init_sets_default_extensions(self):
-        """Should set default file extensions in FileConfig."""
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.PIPER),
-            files=FileConfig(),  # Should use defaults
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-        )
-
-        # FileConfig should have default extensions
-        assert config.files.allowed_extensions == frozenset({"pdf"})
-        assert config.files.audio_extensions == frozenset({"wav", "mp3"})
-
-    def test_system_config_post_init_uses_provided_extensions(self):
-        """Should use provided extensions in FileConfig."""
-        # Test with provided extensions
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.PIPER),
-            files=FileConfig(
-                allowed_extensions=frozenset({"pdf", "docx", "txt"}),
-                audio_extensions=frozenset({"wav", "mp3", "ogg"}),
-            ),
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-        )
-
-        assert config.files.allowed_extensions == frozenset({"pdf", "docx", "txt"})
-        assert config.files.audio_extensions == frozenset({"wav", "mp3", "ogg"})
-
-        # Test with defaults
-        config2 = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.PIPER),
-            files=FileConfig(),  # Uses defaults
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-        )
-
-        assert config2.files.allowed_extensions == frozenset({"pdf"})
-        assert config2.files.audio_extensions == frozenset({"wav", "mp3"})
-
 
 class TestSystemConfigValidationTDD:
     """TDD tests for SystemConfig validation logic."""
@@ -400,32 +348,6 @@ class TestSystemConfigValidationTDD:
 
 class TestSystemConfigHelperMethodsTDD:
     """TDD tests for SystemConfig helper methods."""
-
-    def test_get_gemini_config_creates_correct_config(self):
-        """Should create proper Gemini configuration object."""
-        config = SystemConfig(
-            tts=TTSConfig(engine=TTSEngine.GEMINI),
-            files=FileConfig(),
-            cleanup=FileCleanupConfig(),
-            text_processing=TextProcessingConfig(),
-            performance=PerformanceConfig(),
-            flask=FlaskConfig(),
-            ocr=OCRConfig(),
-            llm=LLMConfig(model_name="gemini-1.5-flash"),
-            gemini=GeminiConfig(api_key="test_key_123", voice_name="Aoede", min_request_interval=1.5),
-            piper=PiperConfig(),
-        )
-
-        result = config.gemini  # Direct access to gemini config
-
-        # Should return a config object with correct values
-        assert result is not None
-        assert hasattr(result, "voice_name")
-        assert hasattr(result, "api_key")
-        assert hasattr(result, "min_request_interval")
-        assert result.voice_name == "Aoede"
-        assert result.api_key == "test_key_123"
-        assert result.min_request_interval == 1.5
 
     def test_get_piper_config_creates_correct_config(self):
         """Should create proper Piper configuration object."""

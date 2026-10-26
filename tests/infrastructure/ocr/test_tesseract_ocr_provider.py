@@ -18,8 +18,6 @@ class TestTesseractOCRProviderInitialization:
         """Should initialize with default OCR settings."""
         provider = TesseractOCRProvider()
 
-        assert provider.ocr_dpi == 300
-        assert provider.ocr_threshold == 180
         assert provider.ocr_language == "eng"
         assert provider.poppler_path_custom is None
 
@@ -39,41 +37,6 @@ class TestTesseractOCRProviderInitialization:
         provider = TesseractOCRProvider(poppler_path_custom=custom_poppler)
 
         assert provider.poppler_path_custom == custom_poppler
-
-    def test_init_with_config_object(self):
-        """Should initialize with configuration object."""
-        mock_config = Mock()
-        mock_config.ocr_dpi = 600
-        mock_config.ocr_threshold = 200
-        mock_config.ocr_language = "fra"
-
-        provider = TesseractOCRProvider(config=mock_config)
-
-        assert provider.ocr_dpi == 600
-        assert provider.ocr_threshold == 200
-        assert provider.ocr_language == "fra"
-
-    def test_init_with_config_without_language(self):
-        """Should default to 'eng' when config lacks language attribute."""
-        mock_config = Mock()
-        mock_config.ocr_dpi = 450
-        mock_config.ocr_threshold = 150
-        # No ocr_language attribute
-        del mock_config.ocr_language
-
-        provider = TesseractOCRProvider(config=mock_config)
-
-        assert provider.ocr_dpi == 450
-        assert provider.ocr_threshold == 150
-        assert provider.ocr_language == "eng"
-
-    def test_init_with_none_config(self):
-        """Should handle None config gracefully."""
-        provider = TesseractOCRProvider(config=None)
-
-        assert provider.ocr_dpi == 300
-        assert provider.ocr_threshold == 180
-        assert provider.ocr_language == "eng"
 
 
 class TestTesseractOCRProviderPerformOCR:
@@ -95,12 +58,7 @@ class TestTesseractOCRProviderPerformOCR:
     def test_perform_ocr_with_custom_language(self, mock_image_to_string):
         """Should use custom language for OCR."""
         mock_image_to_string.return_value = "Texte français extrait"
-        mock_config = Mock()
-        mock_config.ocr_dpi = 300
-        mock_config.ocr_threshold = 180
-        mock_config.ocr_language = "fra"
-
-        provider = TesseractOCRProvider(config=mock_config)
+        provider = TesseractOCRProvider(language="fra")
         result = provider.perform_ocr("french_image.png")
 
         assert result.is_success
