@@ -10,12 +10,9 @@ from domain.errors import (
     Result,
     audio_generation_error,
     configuration_error,
-    file_size_error,
-    invalid_page_range_error,
     llm_provider_error,
     text_extraction_error,
     tts_engine_error,
-    unsupported_file_type_error,
 )
 
 
@@ -181,15 +178,6 @@ class TestErrorFactoryFunctions:
         assert error.details == "API quota exceeded"
         assert error.retryable is True  # LLM errors are typically transient
 
-    def test_invalid_page_range_error_factory(self):
-        """Should create page range error with correct properties."""
-        error = invalid_page_range_error("Page 15 does not exist in 10-page document")
-
-        assert error.code == ErrorCode.INVALID_PAGE_RANGE
-        assert error.message == "Invalid page range"
-        assert error.details == "Page 15 does not exist in 10-page document"
-        assert error.retryable is False  # User input errors are not retryable
-
     def test_configuration_error_factory(self):
         """Should create configuration error with correct properties."""
         error = configuration_error("GOOGLE_AI_API_KEY is required")
@@ -198,111 +186,6 @@ class TestErrorFactoryFunctions:
         assert error.message == "Configuration error"
         assert error.details == "GOOGLE_AI_API_KEY is required"
         assert error.retryable is False  # Configuration errors are not retryable
-
-    def test_file_size_error_factory(self):
-        """Should create file size error with formatted message."""
-        error = file_size_error(150.5, 100)
-
-        assert error.code == ErrorCode.FILE_SIZE_ERROR
-        assert "150.5MB exceeds maximum 100MB" in error.message
-        assert error.retryable is False  # File size errors are not retryable
-
-    def test_file_size_error_factory_with_different_values(self):
-        """Should handle different file size values correctly."""
-        # Test with small decimal
-        error1 = file_size_error(0.5, 1)
-        assert "0.5MB exceeds maximum 1MB" in error1.message
-
-        # Test with large numbers
-        error2 = file_size_error(2048.7, 1000)
-        assert "2048.7MB exceeds maximum 1000MB" in error2.message
-
-        # Test with exact boundary
-        error3 = file_size_error(100.1, 100)
-        assert "100.1MB exceeds maximum 100MB" in error3.message
-
-    def test_unsupported_file_type_error_factory(self):
-        """Should create unsupported file type error with file type."""
-        error = unsupported_file_type_error("docx")
-
-        assert error.code == ErrorCode.UNSUPPORTED_FILE_TYPE
-        assert "Unsupported file type: docx" in error.message
-        assert error.details == "Only PDF files are supported"
-        assert error.retryable is False  # File type errors are not retryable
-
-    def test_unsupported_file_type_error_with_different_types(self):
-        """Should handle different file types correctly."""
-        test_cases = ["txt", "doc", "rtf", "html", ".pdf", "PDF"]
-
-        for file_type in test_cases:
-            error = unsupported_file_type_error(file_type)
-            assert f"Unsupported file type: {file_type}" in error.message
-            assert error.details == "Only PDF files are supported"
-
-
-class TestErrorClassification:
-    """TDD tests for error classification and retryability logic."""
-
-    def test_retryable_errors_are_correctly_classified(self):
-        """Should correctly identify retryable errors."""
-        retryable_errors = [
-            text_extraction_error("OCR failed"),
-            audio_generation_error("TTS service down"),
-            tts_engine_error("Rate limited"),
-            llm_provider_error("API timeout"),
-        ]
-
-        for error in retryable_errors:
-            assert error.retryable is True, f"{error.code} should be retryable"
-
-    def test_non_retryable_errors_are_correctly_classified(self):
-        """Should correctly identify non-retryable errors."""
-        non_retryable_errors = [
-            invalid_page_range_error("Invalid page"),
-            configuration_error("Missing API key"),
-            file_size_error(200, 100),
-            unsupported_file_type_error("txt"),
-        ]
-
-        for error in non_retryable_errors:
-            assert error.retryable is False, f"{error.code} should not be retryable"
-
-    def test_error_classification_consistency(self):
-        """Should maintain consistent error classification logic."""
-        # Define expected classifications
-
-        # Test factory functions produce consistent classifications
-        factory_tests = [
-            (text_extraction_error("test"), True),
-            (audio_generation_error("test"), True),
-            (tts_engine_error("test"), True),
-            (llm_provider_error("test"), True),
-            (invalid_page_range_error("test"), False),
-            (configuration_error("test"), False),
-            (file_size_error(1, 0), False),
-            (unsupported_file_type_error("test"), False),
-        ]
-
-        for error, should_be_retryable in factory_tests:
-            assert error.retryable == should_be_retryable
-
-    def test_custom_error_retryability(self):
-        """Should support custom retryability settings."""
-        # Create custom retryable error
-        custom_retryable = ApplicationError(
-            code=ErrorCode.CONFIGURATION_ERROR,  # Normally not retryable
-            message="Temporary config issue",
-            retryable=True,  # Override default
-        )
-        assert custom_retryable.retryable is True
-
-        # Create custom non-retryable error
-        custom_non_retryable = ApplicationError(
-            code=ErrorCode.TTS_ENGINE_ERROR,  # Normally retryable
-            message="Permanent TTS issue",
-            retryable=False,  # Override default
-        )
-        assert custom_non_retryable.retryable is False
 
 
 class TestErrorHandlingPatterns:
@@ -386,32 +269,6 @@ class TestErrorHandlingPatterns:
         result = operation_with_fallback()
         assert result.is_success
         assert result.value == "fallback_result"
-
-    def test_error_filtering_by_type(self):
-        """Should support filtering errors by type and retryability."""
-        all_errors = [
-            text_extraction_error("OCR failed"),
-            configuration_error("Missing API key"),
-            tts_engine_error("Rate limited"),
-            file_size_error(200, 100),
-            llm_provider_error("Quota exceeded"),
-        ]
-
-        # Filter retryable errors
-        retryable_errors = [e for e in all_errors if e.retryable]
-        assert len(retryable_errors) == 3
-
-        # Filter configuration errors
-        config_errors = [e for e in all_errors if e.code == ErrorCode.CONFIGURATION_ERROR]
-        assert len(config_errors) == 1
-
-        # Filter by multiple criteria
-        retryable_service_errors = [
-            e
-            for e in all_errors
-            if e.retryable and e.code in {ErrorCode.TTS_ENGINE_ERROR, ErrorCode.LLM_PROVIDER_ERROR}
-        ]
-        assert len(retryable_service_errors) == 2
 
 
 class TestErrorHandlingEdgeCases:

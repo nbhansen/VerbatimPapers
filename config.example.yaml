@@ -112,6 +112,3 @@ llm:
   # Text model for cleaning. Must NOT be a -tts model; separate from
   # tts.gemini.model_name, which is the voice generation model.
   model_name: "gemini-2.5-flash"
-  # Parallel cleaning requests and minimum seconds between them
-  concurrent_requests: 3
-  request_delay_seconds: 0.5

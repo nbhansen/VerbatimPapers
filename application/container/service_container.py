@@ -6,7 +6,6 @@ which would violate hexagonal architecture if placed in domain/.
 The domain layer only contains the IServiceContainer interface.
 """
 
-from collections.abc import Callable
 import logging
 import threading
 import types
@@ -72,11 +71,9 @@ class ServiceContainer(IServiceContainer):
         from application.services.progress_store import ThreadSafeProgressStore
         from domain.audio.audio_assembler import AudioAssembler
         from domain.audio.audio_engine import AudioEngine
-        from domain.audio.duration_measurer import AudioDurationMeasurer
         from domain.audio.timing_engine import ITimingEngine, TimingEngine
         from domain.document.document_engine import DocumentEngine
         from domain.interfaces import (
-            IAudioDurationMeasurer,
             IAudioEngine,
             IDocumentEngine,
             IFileManager,
@@ -101,11 +98,8 @@ class ServiceContainer(IServiceContainer):
             IFileManager: lambda: FileManager(
                 upload_folder=self.config.files.upload_folder, output_folder=self.config.files.audio_folder
             ),
-            FileManager: lambda: self.get(IFileManager),
             # TTS Engine (factory method)
             "tts_engine": lambda: self._create_tts_engine(),
-            # Audio Duration Measurer (breaks circular dependency between TimingEngine and AudioEngine)
-            IAudioDurationMeasurer: lambda: AudioDurationMeasurer(),
             # Text Pipeline
             ITextPipeline: lambda: TextPipeline(
                 llm_provider=self.get(GeminiLLMProvider) if self.config.gemini and self.config.gemini.api_key else None,
@@ -126,7 +120,7 @@ class ServiceContainer(IServiceContainer):
             # Timing Engine - shares the assembler so the timeline matches the audio
             ITimingEngine: lambda: TimingEngine(
                 tts_engine=self.get("tts_engine"),
-                file_manager=self.get(FileManager),
+                file_manager=self.get(IFileManager),
                 assembler=self.get(AudioAssembler),
                 request_interval=(
                     self.config.tts.request_delay_seconds if self.config.tts.engine.value == "gemini" else 0.0
@@ -135,9 +129,8 @@ class ServiceContainer(IServiceContainer):
             # Audio Engine
             IAudioEngine: lambda: AudioEngine(
                 tts_engine=self.get("tts_engine"),
-                file_manager=self.get(FileManager),
+                file_manager=self.get(IFileManager),
                 timing_engine=self.get(ITimingEngine),
-                duration_measurer=self.get(IAudioDurationMeasurer),
                 assembler=self.get(AudioAssembler),
                 max_concurrent=self.config.performance.audio_concurrent_chunks,
                 audio_target_chunk_size=self.config.text_processing.audio_target_chunk_size,
@@ -146,7 +139,7 @@ class ServiceContainer(IServiceContainer):
             # Document Engine
             IDocumentEngine: lambda: DocumentEngine(
                 ocr_provider=self.get(TesseractOCRProvider),
-                file_manager=self.get(FileManager),
+                file_manager=self.get(IFileManager),
                 pdf_extractor=self.get(IPdfTextExtractor),
                 audio_target_chunk_size=self.config.text_processing.audio_target_chunk_size,
                 ocr_resolution=self.config.ocr.dpi,
@@ -170,12 +163,7 @@ class ServiceContainer(IServiceContainer):
                 # Text cleaning uses llm.model_name only; tts.gemini.model_name is a
                 # speech-only model and must never be used for text tasks
                 llm = self.config.llm
-                factories[GeminiLLMProvider] = lambda: GeminiLLMProvider(
-                    model_name=llm.model_name,
-                    api_key=api_key,
-                    min_request_interval=llm.request_delay_seconds,
-                    max_concurrent_requests=llm.concurrent_requests,
-                )
+                factories[GeminiLLMProvider] = lambda: GeminiLLMProvider(model_name=llm.model_name, api_key=api_key)
                 factories[ILLMProvider] = lambda: self.get(GeminiLLMProvider)
 
         return factories
@@ -210,42 +198,3 @@ class ServiceContainer(IServiceContainer):
                 repository_url=piper_config.model_repository_url,
                 project_root=self.config.project_root,
             )
-
-
-class ImmutableServiceContainerBuilder:
-    """Builder for creating immutable service containers with additional registrations."""
-
-    def __init__(self, config: SystemConfig):
-        self.config = config
-        self._additional_factories: dict[ServiceKey, ServiceFactory] = {}
-
-    def register(self, interface: type[T] | str, factory: Callable[[], T]) -> "ImmutableServiceContainerBuilder":
-        """Register additional service factory (builder pattern)."""
-        self._additional_factories[interface] = factory
-        return self
-
-    def build(self) -> ServiceContainer:
-        """Build the immutable service container."""
-        # Create container with core services
-        container = ServiceContainer(self.config)
-
-        # Add additional factories if any (they'll be merged into the immutable proxy)
-        if self._additional_factories:
-            # Get existing factories and merge with additional ones
-            all_factories = dict(container._factories)  # Convert proxy to dict
-            all_factories.update(self._additional_factories)
-
-            # Replace with new immutable proxy
-            object.__setattr__(container, "_factories", types.MappingProxyType(all_factories))
-
-        return container
-
-
-def create_service_container(config: SystemConfig) -> ServiceContainer:
-    """Factory function to create configured service container."""
-    return ImmutableServiceContainerBuilder(config).build()
-
-
-def create_service_container_builder(config: SystemConfig) -> ImmutableServiceContainerBuilder:
-    """Factory function to create service container builder for additional registrations."""
-    return ImmutableServiceContainerBuilder(config)

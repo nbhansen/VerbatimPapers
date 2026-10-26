@@ -4,7 +4,6 @@
 Uses the unified Google Gen AI SDK for language model operations.
 """
 
-import asyncio
 import logging
 import time
 
@@ -20,24 +19,11 @@ logger = logging.getLogger(__name__)
 class GeminiLLMProvider(ILLMProvider):
     """Gemini LLM provider for text processing and content generation."""
 
-    def __init__(
-        self,
-        api_key: str,
-        model_name: str,
-        min_request_interval: float = 0.5,
-        max_concurrent_requests: int = 3,
-        requests_per_minute: int = 120,
-    ):
+    def __init__(self, api_key: str, model_name: str):
         self.api_key = api_key
         self.model_name = model_name
         self._initialization_error: str | None = None  # Deferred error handling
         self.client = self._init_client()
-
-        # Rate limiting configuration
-        self.min_request_interval = min_request_interval
-        self.max_concurrent_requests = max_concurrent_requests
-        self.requests_per_minute = requests_per_minute
-        self.request_semaphore = asyncio.Semaphore(self.max_concurrent_requests)
 
     def _init_client(self) -> genai.Client | None:
         """Initialize the Gemini client with API key validation."""
@@ -51,10 +37,6 @@ class GeminiLLMProvider(ILLMProvider):
             self._initialization_error = f"Failed to initialize Gemini LLM client: {e}"
             logger.error(self._initialization_error)
             return None
-
-    def process_text(self, text: str) -> Result[str]:
-        """Process and enhance text using the language model."""
-        return self.generate_content(text)
 
     def generate_content(self, prompt: str) -> Result[str]:
         """Generate content based on a prompt."""
@@ -124,25 +106,3 @@ class GeminiLLMProvider(ILLMProvider):
             error_str = str(e)
             logger.error("LLM API Error (%.2fs): %s for '%s'", api_time, error_str[:200], prompt_preview)
             return Result.failure(llm_provider_error(f"Content generation failed: {e!s}"))
-
-    async def generate_content_async(self, prompt: str) -> Result[str]:
-        """Generate content asynchronously with rate limiting."""
-        # Check for deferred initialization errors
-        if self._initialization_error:
-            logger.error("Gemini LLM initialization failed: %s", self._initialization_error)
-            return Result.failure(llm_provider_error(self._initialization_error))
-
-        if not self.client:
-            return Result.failure(llm_provider_error("Client not available"))
-
-        try:
-            async with self.request_semaphore:
-                # Run blocking sync call in thread pool
-                result = await asyncio.to_thread(self.generate_content, prompt)
-
-                # Rate limiting delay
-                await asyncio.sleep(self.min_request_interval)
-                return result
-
-        except Exception as e:
-            return Result.failure(llm_provider_error(f"Async content generation failed: {e!s}"))

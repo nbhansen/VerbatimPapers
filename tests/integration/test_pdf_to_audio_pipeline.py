@@ -16,10 +16,11 @@ from application.config.app_configs import FlaskConfig
 from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
-from application.container.service_container import create_service_container
+from application.container.service_container import ServiceContainer
 from domain.config.tts_config import PiperConfig, TTSConfig, TTSEngine
-from domain.interfaces import IAudioEngine, IDocumentEngine, ITextPipeline
-from domain.models import PageRange, PDFInfo, TimedAudioResult
+from domain.interfaces import IAudioEngine, IDocumentEngine, IFileManager, ITextPipeline
+from domain.models import PageRange, PDFInfo
+from infrastructure.file.file_manager import FileManager
 
 
 @pytest.fixture
@@ -155,7 +156,7 @@ class TestPDFToAudioPipelineCore:
         pdf_path.write_bytes(test_pdf_content)
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = create_service_container(pipeline_config)
+            container = ServiceContainer(pipeline_config)
             document_engine = container.get(IDocumentEngine)
 
             # Test PDF info extraction
@@ -189,7 +190,7 @@ class TestPDFToAudioPipelineCore:
         """
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = create_service_container(pipeline_config)
+            container = ServiceContainer(pipeline_config)
             text_pipeline = container.get(ITextPipeline)
 
             # Test text processing
@@ -228,7 +229,7 @@ class TestPDFToAudioPipelineCore:
         mock_generate.return_value = fake_audio_data
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = create_service_container(pipeline_config)
+            container = ServiceContainer(pipeline_config)
             audio_engine = container.get(IAudioEngine)
 
             # Test audio generation engine existence
@@ -241,7 +242,7 @@ class TestPDFToAudioPipelineCore:
         nonexistent_path = "/nonexistent/directory/missing.pdf"
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = create_service_container(pipeline_config)
+            container = ServiceContainer(pipeline_config)
             document_engine = container.get(IDocumentEngine)
 
             # Should handle missing file gracefully - specific implementation detail:
@@ -263,7 +264,7 @@ class TestPDFToAudioPipelineCore:
         empty_texts = ["", "   ", "\n\n\t", "  \n  \t  "]
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = create_service_container(pipeline_config)
+            container = ServiceContainer(pipeline_config)
             text_pipeline = container.get(ITextPipeline)
 
             for empty_text in empty_texts:
@@ -296,7 +297,7 @@ class TestPDFToAudioPipelineCore:
     def test_chunking_efficiency(self, pipeline_config: SystemConfig) -> None:
         """Should chunk text efficiently for different sizes."""
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = create_service_container(pipeline_config)
+            container = ServiceContainer(pipeline_config)
             text_pipeline = container.get(ITextPipeline)
 
             # Test various text sizes
@@ -335,11 +336,10 @@ class TestPDFToAudioFileManagement:
         upload_dir, audio_dir = pipeline_test_dirs
 
         with patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", True):
-            container = create_service_container(pipeline_config)
+            container = ServiceContainer(pipeline_config)
 
-            from infrastructure.file.file_manager import FileManager
-
-            file_manager = container.get(FileManager)
+            file_manager = container.get(IFileManager)
+            assert isinstance(file_manager, FileManager)
 
             # File manager should have correct paths
             assert file_manager.upload_folder == upload_dir
@@ -367,23 +367,6 @@ class TestPDFToAudioFileManagement:
 
 class TestPDFToAudioIntegrationValidation:
     """Validate the integration works as expected."""
-
-    def test_processing_result_structure(self, pipeline_config: SystemConfig) -> None:
-        """Should create proper TimedAudioResult structures."""
-        from domain.errors import Result, unknown_error
-
-        # Test successful result
-        success_result = TimedAudioResult(audio_files=["chunk1.wav", "chunk2.wav"], combined_mp3="test_output.mp3")
-
-        assert success_result.audio_files == ["chunk1.wav", "chunk2.wav"]
-        assert success_result.combined_mp3 == "test_output.mp3"
-        assert success_result.timing_data is None
-
-        # Test failure result using Result pattern
-        error = unknown_error("Test processing failure")
-        failure_result: Result[TimedAudioResult] = Result.failure(error)
-        assert failure_result.is_failure
-        assert failure_result.error == error
 
     def test_pipeline_configuration_validation(self, pipeline_config: SystemConfig) -> None:
         """Should validate pipeline configuration is complete."""

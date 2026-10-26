@@ -8,7 +8,7 @@ from application.config.app_configs import FlaskConfig
 from application.config.file_configs import FileCleanupConfig, FileConfig
 from application.config.processing_configs import LLMConfig, OCRConfig, PerformanceConfig, TextProcessingConfig
 from application.config.system_config import SystemConfig
-from application.container.service_container import create_service_container
+from application.container.service_container import ServiceContainer
 from domain.config.tts_config import GeminiConfig, TTSConfig, TTSEngine
 from domain.models import PageRange, ProcessingRequest
 
@@ -49,16 +49,15 @@ def test_service_factory_creation():
         patch("infrastructure.tts.piper_tts_provider.PiperTTSProvider"),
     ):
         config = create_test_config()
-        container = create_service_container(config)
+        container = ServiceContainer(config)
 
         # Verify all main services are available
-        from domain.interfaces import IAudioEngine, IDocumentEngine, ITextPipeline
-        from infrastructure.file.file_manager import FileManager
+        from domain.interfaces import IAudioEngine, IDocumentEngine, IFileManager, ITextPipeline
 
         assert container.get(IAudioEngine) is not None
         assert container.get(ITextPipeline) is not None
         assert container.get(IDocumentEngine) is not None
-        assert container.get(FileManager) is not None
+        assert container.get(IFileManager) is not None
 
 
 def test_basic_workflow_structure():

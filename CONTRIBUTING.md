@@ -117,7 +117,6 @@ The project uses pytest with markers for test categorization:
    uv run python -m pytest                       # All tests (or: make test)
    uv run python -m pytest tests/unit/           # Unit tests only (or: make test-unit)
    uv run python -m pytest tests/integration/    # Integration tests (or: make test-integration)
-   uv run python -m pytest tests/benchmarks/     # Benchmarks
    uv run python -m pytest -k "test_name"        # Specific test
    uv run python -m pytest -m unit               # By marker
    ```
@@ -127,7 +126,6 @@ The project uses pytest with markers for test categorization:
    - `integration` — Tests with mocked external services
    - `external` — Tests requiring real external services (manual)
    - `slow` — Tests taking more than 5 seconds
-   - `benchmark` — Performance benchmark tests
 
 3. **Test Requirements**:
    - New domain logic should have unit tests

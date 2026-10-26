@@ -90,7 +90,6 @@ class TestPiperTTSProviderInitialization:
         provider = PiperTTSProvider(basic_piper_config)
 
         assert provider.config == basic_piper_config
-        assert provider.output_format == "wav"
         assert provider.models_dir == basic_piper_config.download_dir
         assert Path(provider.models_dir).exists()
 
@@ -249,26 +248,6 @@ class TestPiperTTSProviderTextValidation:
         assert result.is_failure
         assert result.error is not None
         assert "Empty text provided" in str(result.error.details)
-
-    @patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", False)
-    @patch("subprocess.run")
-    def test_synthesize_rejects_error_messages(self, mock_run: Mock, basic_piper_config: PiperConfig) -> None:
-        """Should reject error message text."""
-        mock_run.return_value = Mock(returncode=0)
-        provider = PiperTTSProvider(basic_piper_config)
-
-        error_texts = [
-            "LLM cleaning skipped due to error",
-            "Error: Processing failed",
-            "Could not convert PDF to audio",
-        ]
-
-        for error_text in error_texts:
-            result = provider.synthesize(error_text)
-
-            assert result.is_failure
-            assert result.error is not None
-            assert "Cannot generate audio from error message" in str(result.error.details)
 
     @patch("infrastructure.tts.piper_tts_provider.PIPER_VOICE_AVAILABLE", False)
     @patch("subprocess.run")

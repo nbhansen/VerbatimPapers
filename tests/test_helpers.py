@@ -75,14 +75,6 @@ class FakeLLMProvider(ILLMProvider):
             return Result.failure(llm_provider_error("LLM generation failed"))
         return Result.success(f"Cleaned: {prompt[:50]}... with pauses")
 
-    def process_text(self, text: str) -> Result[str]:
-        """Process text using fake LLM content generation."""
-        return self.generate_content(text)
-
-    async def generate_content_async(self, prompt: str) -> Result[str]:
-        """Async version for interface compliance."""
-        return self.generate_content(prompt)
-
 
 def create_test_request(pdf_path="test.pdf", output_name="test_output", page_range=None):
     return ProcessingRequest(pdf_path=pdf_path, output_name=output_name, page_range=page_range or PageRange())

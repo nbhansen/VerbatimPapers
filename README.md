@@ -149,7 +149,7 @@ VerbatimPapers/
 │   ├── ocr/               # Tesseract OCR
 │   ├── pdf/               # pdfplumber text extraction
 │   └── file/              # File management, cleanup scheduler
-└── tests/                 # Unit, infrastructure, integration, and benchmark tests
+└── tests/                 # Unit, infrastructure, and integration tests
 ```
 
 ## API Endpoints

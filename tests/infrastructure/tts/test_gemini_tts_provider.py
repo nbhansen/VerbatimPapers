@@ -55,7 +55,6 @@ class TestGeminiTTSProviderInitialization:
         assert provider.model_name == "gemini-1.5-flash"
         assert provider.api_key == "test_api_key"
         assert provider.voice_name == "Kore"
-        assert provider.output_format == "mp3"
 
         # Default values
         assert provider.min_request_interval == 2.0

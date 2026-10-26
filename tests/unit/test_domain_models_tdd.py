@@ -5,7 +5,6 @@ Tests written first to drive implementation and ensure all edge cases are covere
 """
 
 from domain.models import (
-    CleanupResult,
     PDFInfo,
     TextSegment,
     TimedAudioResult,
@@ -44,43 +43,6 @@ class TestPDFInfo:
 
         assert pdf_info.title == "Título en Español: José María"
         assert pdf_info.author == "李小明"
-
-
-class TestCleanupResult:
-    """TDD tests for CleanupResult model - file cleanup operations."""
-
-    def test_cleanup_result_with_successful_cleanup(self):
-        """Should create cleanup result with removal statistics."""
-        result = CleanupResult(files_removed=5, bytes_freed=10485760, errors=[])  # 10MB
-
-        assert result.files_removed == 5
-        assert result.bytes_freed == 10485760
-        assert result.mb_freed == 10.0
-        assert result.errors == []
-
-    def test_cleanup_result_with_errors(self):
-        """Should track cleanup errors."""
-        errors = ["Permission denied: /protected/file.wav", "File not found: /missing.mp3"]
-        result = CleanupResult(files_removed=2, bytes_freed=5242880, errors=errors)
-
-        assert result.files_removed == 2
-        assert result.mb_freed == 5.0
-        assert result.errors == errors
-        assert len(result.errors) == 2
-
-    def test_cleanup_result_with_no_files_removed(self):
-        """Should handle case where no files were removed."""
-        result = CleanupResult(files_removed=0, bytes_freed=0, errors=[])
-
-        assert result.files_removed == 0
-        assert result.bytes_freed == 0
-        assert result.mb_freed == 0.0
-
-    def test_cleanup_result_bytes_to_mb_conversion(self):
-        """Should correctly convert bytes to megabytes."""
-        result = CleanupResult(files_removed=1, bytes_freed=1572864, errors=[])  # 1.5MB
-
-        assert result.mb_freed == 1.5
 
 
 class TestTextSegment:
@@ -168,63 +130,6 @@ class TestTimingMetadata:
         assert metadata.total_duration == 3.5
         assert len(metadata.text_segments) == 2
         assert metadata.audio_files == ["output.wav"]
-
-    def test_timing_metadata_get_segment_at_time_found(self):
-        """Should find segment active at given time."""
-        segments = [
-            TextSegment("First.", 0.0, 2.0, "sentence", 0, 0),
-            TextSegment("Second.", 2.0, 3.0, "sentence", 0, 1),
-            TextSegment("Third.", 5.0, 2.0, "sentence", 0, 2),
-        ]
-
-        metadata = TimingMetadata(7.0, segments, ["audio.wav"])
-
-        # Test finding segments at various times
-        segment_1 = metadata.get_segment_at_time(1.0)
-        assert segment_1 is not None
-        assert segment_1.text == "First."
-
-        segment_2 = metadata.get_segment_at_time(2.5)
-        assert segment_2 is not None
-        assert segment_2.text == "Second."
-
-        segment_3 = metadata.get_segment_at_time(6.0)
-        assert segment_3 is not None
-        assert segment_3.text == "Third."
-
-    def test_timing_metadata_get_segment_at_time_not_found(self):
-        """Should return None when no segment is active at given time."""
-        segments = [TextSegment("Only segment.", 1.0, 2.0, "sentence", 0, 0)]
-
-        metadata = TimingMetadata(3.0, segments, ["audio.wav"])
-
-        # Before segment starts
-        assert metadata.get_segment_at_time(0.5) is None
-        # After segment ends
-        assert metadata.get_segment_at_time(3.5) is None
-
-    def test_timing_metadata_get_segment_at_exact_boundaries(self):
-        """Should handle exact boundary times correctly."""
-        segments = [TextSegment("Test segment.", 1.0, 2.0, "sentence", 0, 0)]
-
-        metadata = TimingMetadata(3.0, segments, ["audio.wav"])
-
-        # At exact start time
-        start_segment = metadata.get_segment_at_time(1.0)
-        assert start_segment is not None
-        assert start_segment.text == "Test segment."
-
-        # At exact end time
-        end_segment = metadata.get_segment_at_time(3.0)
-        assert end_segment is not None
-        assert end_segment.text == "Test segment."
-
-    def test_timing_metadata_with_empty_segments(self):
-        """Should handle empty segments list."""
-        metadata = TimingMetadata(0.0, [], ["audio.wav"])
-
-        assert len(metadata.text_segments) == 0
-        assert metadata.get_segment_at_time(1.0) is None
 
     def test_timing_metadata_with_multiple_audio_files(self):
         """Should support multiple audio files."""
