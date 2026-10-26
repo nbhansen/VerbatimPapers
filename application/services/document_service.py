@@ -23,6 +23,11 @@ from utils import parse_page_range_from_form, parse_plain_english_from_form
 logger = logging.getLogger(__name__)
 
 
+def output_base_name(original_filename: str, operation_id: str) -> str:
+    """Base name for a conversion's output files: the upload's stem plus a short operation id."""
+    return f"{Path(original_filename).stem}_{operation_id[:8]}"
+
+
 def timing_json_filename(base_filename: str) -> str:
     """Name of the read-along timing file saved for a conversion's base filename."""
     return f"{base_filename}_timing.json"
@@ -60,8 +65,8 @@ class DocumentProcessingService:
             # 1. Validate and prepare file info (10%)
             self.progress_store.update(operation_id, "validating", 10, "Validating uploaded file...")
 
-            # Simplified file info extraction
-            base_filename = Path(original_filename).stem
+            # The operation id keeps outputs of same-named uploads from overwriting each other
+            base_filename = output_base_name(original_filename, operation_id)
             page_range = parse_page_range_from_form(request_form)
             enable_plain_english = parse_plain_english_from_form(request_form)
 

@@ -569,7 +569,15 @@ def render_upload_result(
     if not page_range.is_full_document():
         display_filename += f" (pages {page_range.start_page or 1}-{page_range.end_page or 'end'})"
 
+    # Saved downloads drop the operation id that keeps the stored files unique
+    stem = Path(original_filename).stem
+    download_names = {
+        name: name.replace(base_filename_no_ext, stem, 1)
+        for name in [*result.audio_files, *([result.combined_mp3] if result.combined_mp3 else [])]
+    }
+
     template_params: dict[str, Any] = {
+        "download_names": download_names,
         "audio_files": result.audio_files,
         "combined_mp3_file": result.combined_mp3,
         "original_filename": display_filename,
